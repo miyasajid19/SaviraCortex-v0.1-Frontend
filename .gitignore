@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Keep the safe Firebase setup template; never commit real environment files.
+!.env.local.example
