@@ -45,7 +45,14 @@ export default function InvitationPanel({ organization, token }: { organization:
     }
   }
 
-  useEffect(() => { if (organization.role === "owner" || organization.role === "admin") void load(); }, [organization.organization_id, organization.role, token]);
+  useEffect(() => {
+    if (organization.role !== "owner" && organization.role !== "admin") return;
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void load(); });
+    return () => { cancelled = true; };
+    // load is intentionally invoked after the effect commits; its inputs are listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organization.organization_id, organization.role, token]);
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -13,6 +13,7 @@ import {
   type User,
 } from "firebase/auth";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Mail01Icon, GoogleIcon, CallIcon, ShieldCheckIcon, EyeIcon, EyeClosedIcon } from "@hugeicons/core-free-icons";
 import { auth, firebaseConfigError } from "../firebase";
@@ -186,10 +187,10 @@ export default function LoginPage() {
         <div className="sc-orbit sc-orbit-b" aria-hidden="true" />
         <div className="sc-orbit sc-orbit-c" aria-hidden="true" />
         <div className="relative z-10 flex items-center justify-between">
-          <a href="/" className="sc-wordmark inline-flex items-center gap-3">
+          <Link href="/" className="sc-wordmark inline-flex items-center gap-3">
             <span className="sc-mark"><span>S</span></span>
             <span>Savira<span className="text-cyan-300">Cortex</span></span>
-          </a>
+          </Link>
           <span className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/[0.045] px-3 py-2 text-[10px] font-medium tracking-[0.16em] text-slate-300 sm:inline-flex"><span className="sc-live-dot" /> INTELLIGENCE, CONNECTED</span>
         </div>
         <div className="relative z-10 my-auto grid items-center gap-8 py-16 lg:grid-cols-[minmax(0,1fr)_minmax(230px,0.8fr)] lg:gap-2 lg:py-10">
@@ -214,8 +215,8 @@ export default function LoginPage() {
 
       <section className="sc-auth-side relative flex min-h-screen flex-col px-5 py-6 sm:px-10 lg:px-12 xl:px-[6vw]">
         <header className="relative z-10 flex items-center justify-between">
-          <a href="/" className="sc-wordmark inline-flex items-center gap-2 lg:hidden"><span className="sc-mark sc-mark-small"><span>S</span></span><span>Savira<span className="text-cyan-300">Cortex</span></span></a>
-          <p className="ml-auto text-xs text-slate-400 sm:text-sm">New here? <a href="/register" className="font-semibold text-cyan-300 transition hover:text-white">Create account ↗</a></p>
+          <Link href="/" className="sc-wordmark inline-flex items-center gap-2 lg:hidden"><span className="sc-mark sc-mark-small"><span>S</span></span><span>Savira<span className="text-cyan-300">Cortex</span></span></Link>
+          <p className="ml-auto text-xs text-slate-400 sm:text-sm">New here? <Link href="/register" className="font-semibold text-cyan-300 transition hover:text-white">Create account ↗</Link></p>
         </header>
         <div className="relative z-10 mx-auto flex w-full max-w-[440px] flex-1 flex-col justify-center py-12">
           <div className="sc-auth-heading mb-7">

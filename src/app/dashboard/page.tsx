@@ -3,8 +3,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { auth, firebaseConfigError } from "../firebase";
 import InvitationPanel from "./InvitationPanel";
+import DocumentIngestionModal from "./DocumentIngestionModal";
 
 const API = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -49,7 +51,7 @@ type DepartmentAssignment = {
   display_name: string | null;
 };
 
-function DepartmentPanel({ organization, token }: { organization: Organization; token: string }) {
+function DepartmentPanel({ organization, token, uploaderId }: { organization: Organization; token: string; uploaderId: string }) {
   const [members, setMembers] = useState<OrganizationMember[]>([]);
   const [membersLoading, setMembersLoading] = useState(true);
   const [memberUserId, setMemberUserId] = useState("");
@@ -89,7 +91,13 @@ function DepartmentPanel({ organization, token }: { organization: Organization; 
     }
   }
 
-  useEffect(() => { void loadRoles(); }, [organization.organization_id, token]);
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void loadRoles(); });
+    return () => { cancelled = true; };
+    // loadRoles uses only the organization ID and auth token listed below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organization.organization_id, token]);
 
   async function createRole(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -131,7 +139,13 @@ function DepartmentPanel({ organization, token }: { organization: Organization; 
     }
   }
 
-  useEffect(() => { void loadMembers(); }, [organization.organization_id, token]);
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void loadMembers(); });
+    return () => { cancelled = true; };
+    // loadMembers uses only the organization ID and auth token listed below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organization.organization_id, token]);
 
   async function addMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -214,7 +228,13 @@ function DepartmentPanel({ organization, token }: { organization: Organization; 
     }
   }
 
-  useEffect(() => { void loadDepartmentAssignments(selectedDepartmentId); }, [selectedDepartmentId, organization.organization_id, token]);
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void loadDepartmentAssignments(selectedDepartmentId); });
+    return () => { cancelled = true; };
+    // loadDepartmentAssignments uses the selected department and auth context listed below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDepartmentId, organization.organization_id, token]);
 
   async function assignDepartmentMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -287,7 +307,13 @@ function DepartmentPanel({ organization, token }: { organization: Organization; 
     }
   }
 
-  useEffect(() => { void loadDepartments(); }, [organization.organization_id, token]);
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => { if (!cancelled) void loadDepartments(); });
+    return () => { cancelled = true; };
+    // loadDepartments uses only the organization ID and auth token listed below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organization.organization_id, token]);
 
   async function createDepartment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -325,6 +351,10 @@ function DepartmentPanel({ organization, token }: { organization: Organization; 
         <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs capitalize text-emerald-300">{organization.role}</span>
       </div>
       <p className="mt-3 break-all text-xs text-slate-500">ID: {organization.organization_id}</p>
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-900/40 bg-cyan-950/15 p-4">
+        <div><h3 className="text-sm font-semibold text-slate-100">Knowledge base</h3><p className="mt-1 text-xs text-slate-400">Add a PDF to the organization&apos;s document collection.</p></div>
+        <DocumentIngestionModal organization={organization} uploaderId={uploaderId} departments={departments} />
+      </div>
       <InvitationPanel organization={organization} token={token} />
       <div className="my-6 border-t border-slate-800" />
       <div className="flex items-center justify-between gap-3">
@@ -450,10 +480,10 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [token, setToken] = useState("");
   const [error, setError] = useState(firebaseConfigError);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(auth));
 
   useEffect(() => {
-    if (!auth) { setLoading(false); return; }
+    if (!auth) return;
     return onAuthStateChanged(auth, async (user) => {
       if (!user) { router.replace("/login"); return; }
       try {
@@ -478,7 +508,7 @@ export default function DashboardPage() {
 
   return <main className="min-h-screen bg-slate-950 text-white">
     <nav className="mx-auto flex max-w-6xl justify-between px-6 py-6">
-      <a href="/" className="text-xl font-bold"><span className="text-cyan-400">Savira</span>Cortex</a>
+      <Link href="/" className="text-xl font-bold"><span className="text-cyan-400">Savira</span>Cortex</Link>
       <button onClick={logout} className="rounded-xl border border-slate-700 px-4 py-2 text-sm transition hover:border-slate-500">Sign out</button>
     </nav>
     <section className="mx-auto max-w-6xl px-6 py-12">
@@ -487,7 +517,7 @@ export default function DashboardPage() {
       <p className="mt-3 text-slate-400">Manage your organization, departments, and custom roles.</p>
       {loading ? <p className="mt-6 text-slate-400">Loading account…</p> :
         error ? <p role="alert" className="mt-6 rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-200">{error}</p> :
-        <div className="mt-8 grid gap-5 lg:grid-cols-2">{profile?.organizations.map((organization) => <DepartmentPanel key={organization.organization_id} organization={organization} token={token} />)}</div>}
+        <div className="mt-8 grid gap-5 lg:grid-cols-2">{profile?.organizations.map((organization) => <DepartmentPanel key={organization.organization_id} organization={organization} token={token} uploaderId={profile.user_id} />)}</div>}
       {profile && <p className="mt-8 text-sm text-slate-500">Signed in using {profile.sign_in_provider || "Firebase"} · {profile.email || profile.phone_number}</p>}
     </section>
   </main>;

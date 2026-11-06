@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { signInWithCustomToken } from "firebase/auth";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { auth } from "../../firebase";
 
 const API = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -29,26 +30,32 @@ export default function AcceptInvitationPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const inviteToken = new URLSearchParams(window.location.search).get("token") || "";
-    setToken(inviteToken);
-    if (!inviteToken) {
-      setError("This invitation link is missing its token.");
-      setLoading(false);
-      return;
-    }
-    fetch(`${API}/api/v1/invitations/preview?token=${encodeURIComponent(inviteToken)}`, {
-      method: "GET",
-      cache: "no-store",
-      referrerPolicy: "no-referrer",
-    })
-      .then(async (response) => {
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.detail || "This invitation is invalid or expired.");
-        setInvitation(data);
-        setFullName(data.candidate_name || "");
+    let cancelled = false;
+    queueMicrotask(() => {
+      const inviteToken = new URLSearchParams(window.location.search).get("token") || "";
+      if (cancelled) return;
+      setToken(inviteToken);
+      if (!inviteToken) {
+        setError("This invitation link is missing its token.");
+        setLoading(false);
+        return;
+      }
+      fetch(`${API}/api/v1/invitations/preview?token=${encodeURIComponent(inviteToken)}`, {
+        method: "GET",
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
       })
-      .catch((err) => setError((err as Error).message))
-      .finally(() => setLoading(false));
+        .then(async (response) => {
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.detail || "This invitation is invalid or expired.");
+          if (cancelled) return;
+          setInvitation(data);
+          setFullName(data.candidate_name || "");
+        })
+        .catch((err) => { if (!cancelled) setError((err as Error).message); })
+        .finally(() => { if (!cancelled) setLoading(false); });
+    });
+    return () => { cancelled = true; };
   }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -98,7 +105,7 @@ export default function AcceptInvitationPage() {
   return (
     <main className="min-h-screen bg-slate-950 px-5 py-12 text-white">
       <div className="mx-auto max-w-xl">
-        <a href="/" className="text-xl font-bold"><span className="text-cyan-400">Savira</span>Cortex</a>
+        <Link href="/" className="text-xl font-bold"><span className="text-cyan-400">Savira</span>Cortex</Link>
         <section className="mt-10 rounded-3xl border border-slate-800 bg-slate-900 p-7 shadow-2xl sm:p-9">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">Organization invitation</p>
           <h1 className="mt-3 text-3xl font-semibold">Complete your account</h1>
@@ -127,7 +134,7 @@ export default function AcceptInvitationPage() {
                   <label htmlFor="phone" className="block text-sm font-medium text-slate-300">Phone number <span className="text-slate-500">(optional)</span></label>
                   <input id="phone" type="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-cyan-400" placeholder="+91…" />
                 </div>
-                {error && <div role="alert" className={accountCreated ? "rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-emerald-200" : "rounded-xl border border-rose-400/30 bg-rose-400/10 p-3 text-sm text-rose-200"}>{error}{accountCreated && <p className="mt-2"><a className="font-semibold underline" href="/login">Continue to login</a></p>}</div>}
+                {error && <div role="alert" className={accountCreated ? "rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-emerald-200" : "rounded-xl border border-rose-400/30 bg-rose-400/10 p-3 text-sm text-rose-200"}>{error}{accountCreated && <p className="mt-2"><Link className="font-semibold underline" href="/login">Continue to login</Link></p>}</div>}
                 <button type="submit" disabled={saving || accountCreated || !fullName.trim() || credential.length < 8 || credential !== confirmCredential} className="w-full rounded-xl bg-cyan-300 px-4 py-3 font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Creating your account…" : "Create account and continue"}</button>
               </form>
             </> : <div className="mt-6 rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-sm text-rose-200">{error || "This invitation is not available."}</div>}
