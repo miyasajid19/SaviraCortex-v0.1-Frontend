@@ -10,6 +10,7 @@ type Invitation = {
   email: string;
   candidate_name: string;
   role: string;
+  custom_role: string;
   status: string;
   created_at: string;
   expires_at: string;
@@ -93,11 +94,18 @@ export default function InvitationPanel({ organization, token }: { organization:
           <input id={`invite-email-${organization.organization_id}`} required type="email" maxLength={320} value={email} onChange={(event) => setEmail(event.target.value)} placeholder="employee@company.com" className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-cyan-400" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-300" htmlFor={`invite-role-${organization.organization_id}`}>Organization role</label>
+          <label className="block text-xs font-medium text-slate-300" htmlFor={`invite-role-${organization.organization_id}`}>Access level</label>
           <select id={`invite-role-${organization.organization_id}`} value={role} onChange={(event) => setRole(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
             <option value="member">Member</option>
             {canInviteAdmin && <option value="admin">Admin</option>}
           </select>
+        </div>
+        <div>
+          <span className="block text-xs font-medium text-slate-300">Default organization role</span>
+          <div className="mt-2 flex min-h-[42px] items-center gap-2 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2.5 text-sm text-violet-200">
+            <span className="rounded-full bg-violet-400/15 px-2.5 py-1 text-xs font-semibold capitalize">Newbie</span>
+            <span className="text-xs text-slate-400">Assigned automatically after acceptance</span>
+          </div>
         </div>
         <div className="flex items-end">
           <button type="submit" disabled={saving || !email.trim() || candidateName.trim().length < 2} className="w-full rounded-lg bg-cyan-300 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Sending invitation…" : "Send invitation email"}</button>
@@ -115,7 +123,7 @@ export default function InvitationPanel({ organization, token }: { organization:
                   <p className="text-sm font-medium text-slate-100">{row.candidate_name}</p>
                   <p className="mt-1 break-all text-xs text-slate-400">{row.email}</p>
                 </div>
-                <span className="rounded-full border border-slate-700 px-2.5 py-1 text-xs capitalize text-slate-300">{row.status} · {row.role}</span>
+                <div className="flex flex-wrap items-center gap-1.5"><span className="rounded-full border border-slate-700 px-2.5 py-1 text-xs capitalize text-slate-300">{row.status} · {row.custom_role}</span><span className="text-[11px] text-slate-500">Access: {row.role}</span></div>
               </div>
               <p className="mt-2 text-xs text-slate-500">Sent: {row.email_sent_at ? new Date(row.email_sent_at).toLocaleString() : "Not recorded"} · Expires: {new Date(row.expires_at).toLocaleString()}</p>
             </li>

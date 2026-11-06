@@ -38,6 +38,7 @@ type OrganizationMember = {
   created_at: string;
   email: string | null;
   display_name: string | null;
+  custom_roles: string[];
 };
 type DepartmentAssignment = {
   organization_id: string;
@@ -362,6 +363,7 @@ function DepartmentPanel({ organization, token }: { organization: Organization; 
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-slate-200">{member.display_name || member.email || "SaviraCortex user"}</p>
                 <p className="mt-1 break-all text-xs text-slate-500">{member.email || member.user_id}</p>
+                {member.custom_roles?.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{member.custom_roles.map((customRole) => <span key={customRole} className="rounded-full border border-violet-400/30 bg-violet-400/10 px-2 py-0.5 text-[11px] capitalize text-violet-200">{customRole}</span>)}</div>}
               </div>
               <div className="flex items-center gap-2">
                 {organization.role === "owner" && member.role !== "owner" ?
