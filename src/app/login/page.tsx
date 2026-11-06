@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   GoogleAuthProvider,
   onAuthStateChanged,
@@ -50,7 +50,7 @@ export default function LoginPage() {
   const handledUid = useRef<string | null>(null);
   const mounted = useRef(true);
 
-  async function loadProfile(user: User): Promise<void> {
+  const loadProfile = useCallback(async (user: User): Promise<void> => {
     let token = await user.getIdToken(true);
     let response = await fetch(API + "/api/v1/auth/me", {
       headers: { Authorization: `Bearer ${token}` },
@@ -80,7 +80,7 @@ export default function LoginPage() {
       throw new Error("SaviraCortex could not verify this Firebase session, even after refreshing its token. Please sign in again. If this repeats, check that the frontend and backend use the same Firebase project.");
     }
     throw new Error(data.detail || `Profile request failed (HTTP ${response.status}).`);
-  }
+  }, [router]);
 
   useEffect(() => {
     mounted.current = true;
@@ -101,7 +101,7 @@ export default function LoginPage() {
       recaptcha.current?.clear();
       recaptcha.current = null;
     };
-  }, []);
+  }, [loadProfile]);
 
   async function runAuthentication(action: () => Promise<unknown>) {
     if (!auth) {

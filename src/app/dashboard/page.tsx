@@ -351,7 +351,11 @@ function DepartmentPanel({ organization, token, uploaderId }: { organization: Or
         <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs capitalize text-emerald-300">{organization.role}</span>
       </div>
       <p className="mt-3 break-all text-xs text-slate-500">ID: {organization.organization_id}</p>
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-900/40 bg-cyan-950/15 p-4">
+      <Link href={`/dashboard/chat?organizationId=${organization.organization_id}`} className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-300/20 bg-gradient-to-r from-cyan-950/35 to-slate-900/70 p-4 transition hover:border-cyan-200/40 hover:bg-cyan-950/40">
+        <div><h3 className="text-sm font-semibold text-cyan-100">Knowledge assistant</h3><p className="mt-1 text-xs text-slate-400">Ask questions and explore answers grounded in authorized documents.</p></div>
+        <span className="rounded-lg border border-cyan-200/20 bg-cyan-200/10 px-3 py-2 text-xs font-semibold text-cyan-100">Open chat ↗</span>
+      </Link>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-900/40 bg-cyan-950/15 p-4">
         <div><h3 className="text-sm font-semibold text-slate-100">Knowledge base</h3><p className="mt-1 text-xs text-slate-400">Add a PDF to the organization&apos;s document collection.</p></div>
         <DocumentIngestionModal organization={organization} uploaderId={uploaderId} departments={departments} />
       </div>
