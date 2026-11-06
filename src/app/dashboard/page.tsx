@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { auth, firebaseConfigError } from "../firebase";
+import InvitationPanel from "./InvitationPanel";
 
 const API = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -323,6 +324,7 @@ function DepartmentPanel({ organization, token }: { organization: Organization; 
         <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs capitalize text-emerald-300">{organization.role}</span>
       </div>
       <p className="mt-3 break-all text-xs text-slate-500">ID: {organization.organization_id}</p>
+      <InvitationPanel organization={organization} token={token} />
       <div className="my-6 border-t border-slate-800" />
       <div className="flex items-center justify-between gap-3">
         <div><h3 className="font-semibold text-slate-100">Departments</h3><p className="mt-1 text-xs text-slate-500">Teams and divisions inside this organization</p></div>
