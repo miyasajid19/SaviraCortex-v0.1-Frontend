@@ -340,141 +340,67 @@ function DepartmentPanel({ organization, token, uploaderId }: { organization: Or
   }
 
   const canManage = organization.role === "owner" || organization.role === "admin";
+  const [activeSection, setActiveSection] = useState<"overview" | "departments" | "people" | "access">("overview");
+  const selectedDepartment = departments.find((department) => department.id === selectedDepartmentId);
+  const sectionItems = [
+    { id: "overview" as const, label: "Overview", detail: "Workspace summary", mark: "01" },
+    { id: "departments" as const, label: "Departments", detail: "Teams and spaces", mark: "02" },
+    { id: "people" as const, label: "People", detail: "Members and assignments", mark: "03" },
+    { id: "access" as const, label: "Access & roles", detail: "Invitations and permissions", mark: "04" },
+  ];
 
   return (
-    <article className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-black/10">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">Organization</p>
-          <h2 className="mt-2 text-2xl font-semibold text-white">{organization.organization_name}</h2>
+    <article className="sc-workspace">
+      <header className="sc-workspace-head">
+        <div className="min-w-0"><div className="sc-kicker"><span className="sc-live-dot" /> ORGANIZATION WORKSPACE</div><h2 className="mt-3 truncate text-2xl font-semibold tracking-tight text-white sm:text-3xl">{organization.organization_name}</h2><p className="mt-2 text-sm text-slate-400">A focused place for your teams, knowledge and people.</p></div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2"><span className="sc-role-chip">{organization.role}</span><DocumentIngestionModal organization={organization} uploaderId={uploaderId} departments={departments} /></div>
+      </header>
+      <div className="sc-workspace-body">
+        <aside className="sc-workspace-sidebar" aria-label="Organization navigation">
+          <p className="sc-side-label">WORKSPACE</p><nav className="mt-3 grid gap-1">
+            {sectionItems.map((item) => <button key={item.id} type="button" onClick={() => setActiveSection(item.id)} className={activeSection === item.id ? "sc-side-link is-active" : "sc-side-link"}><span className="sc-side-mark">{item.mark}</span><span className="min-w-0 text-left"><span className="block text-sm font-semibold">{item.label}</span><span className="mt-0.5 block text-[11px] text-slate-500">{item.detail}</span></span><span className="ml-auto text-slate-500">›</span></button>)}
+          </nav>
+          <div className="sc-sidebar-divider" /><p className="sc-side-label">KNOWLEDGE</p>
+          <Link href={`/dashboard/chat?organizationId=${organization.organization_id}`} className="sc-side-link mt-3"><span className="sc-side-icon">✳</span><span className="min-w-0 text-left"><span className="block text-sm font-semibold">AI assistant</span><span className="mt-0.5 block text-[11px] text-slate-500">Ask your workspace</span></span><span className="ml-auto text-slate-500">↗</span></Link>
+          <div className="mt-6 rounded-xl border border-white/[0.07] bg-white/[0.025] p-3"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-slate-500">Workspace ID</p><p className="mt-2 break-all font-mono text-[10px] leading-5 text-slate-400">{organization.organization_id}</p></div>
+        </aside>
+        <div className="sc-workspace-content">
+          {activeSection === "overview" && <div className="space-y-6">
+            <div className="sc-welcome-banner"><div className="relative z-10 max-w-xl"><p className="sc-kicker">YOUR COMMAND CENTRE</p><h3 className="mt-3 text-2xl font-semibold tracking-tight text-white sm:text-[2rem]">Everything your team needs, in one place.</h3><p className="mt-3 max-w-lg text-sm leading-6 text-slate-300/75">Move between departments, manage access and explore the knowledge your organization has collected.</p><Link href={`/dashboard/chat?organizationId=${organization.organization_id}`} className="sc-primary-link mt-5">Open knowledge assistant <span>↗</span></Link></div><div className="sc-banner-orbit" aria-hidden="true"><span>SC</span><i /><b /></div></div>
+            <div className="grid gap-3 sm:grid-cols-3"><div className="sc-metric"><span className="sc-metric-label">DEPARTMENTS</span><strong>{departments.length}</strong><span>Organized teams</span></div><div className="sc-metric"><span className="sc-metric-label">PEOPLE</span><strong>{members.length}</strong><span>Workspace members</span></div><div className="sc-metric"><span className="sc-metric-label">CUSTOM ROLES</span><strong>{roles.length}</strong><span>Defined role labels</span></div></div>
+            <section><div className="sc-section-heading"><div><p className="sc-kicker">YOUR ORGANIZATION</p><h3 className="mt-2 text-lg font-semibold text-white">Explore departments</h3><p className="mt-1 text-xs text-slate-500">Choose a team to view its people and workspace details.</p></div><button type="button" onClick={() => setActiveSection("departments")} className="sc-text-action">View all departments ↗</button></div>
+              {loading ? <div className="sc-empty">Loading departments…</div> : departments.length ? <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{departments.slice(0,6).map((department,index) => <button key={department.id} type="button" onClick={() => {setSelectedDepartmentId(department.id);setActiveSection("departments");}} className="sc-department-card text-left"><span className="sc-dept-index">DEPT / {String(index+1).padStart(2,"0")}</span><span className="sc-dept-symbol">{department.name.slice(0,1).toUpperCase()}</span><strong>{department.name}</strong><span className="line-clamp-2 text-xs leading-5 text-slate-500">{department.description || "Department workspace and team members."}</span><span className="sc-card-open">Explore department <span>↗</span></span></button>)}</div> : <div className="sc-empty"><strong>No departments yet</strong><span>Create your first department to organize your workspace.</span>{canManage && <button type="button" onClick={() => setActiveSection("departments")} className="sc-text-action mt-2">Create a department ↗</button>}</div>}
+            </section>
+          </div>}
+          {activeSection === "departments" && <section>
+            <div className="sc-section-heading"><div><p className="sc-kicker">TEAM STRUCTURE</p><h3 className="mt-2 text-2xl font-semibold text-white">Departments</h3><p className="mt-1 text-sm text-slate-500">Select a department to inspect its team and manage assignments.</p></div><span className="sc-count-chip">{departments.length} total</span></div>
+            {error && <p role="alert" className="sc-inline-error mt-4">{error}</p>}
+            <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(260px,.8fr)]"><div className="space-y-2">
+              {loading ? <div className="sc-empty">Loading departments…</div> : departments.map((department,index) => <button key={department.id} type="button" onClick={() => setSelectedDepartmentId(department.id)} className={selectedDepartmentId===department.id ? "sc-dept-row is-selected" : "sc-dept-row"}><span className="sc-dept-symbol">{department.name.slice(0,1).toUpperCase()}</span><span className="min-w-0 flex-1 text-left"><strong className="block truncate text-sm text-white">{department.name}</strong><span className="mt-1 block truncate text-xs text-slate-500">{department.description || "No description added"}</span></span><span className="text-xs text-slate-500">{String(index+1).padStart(2,"0")}</span><span className="text-slate-500">›</span></button>)}
+              {!loading && !departments.length && <div className="sc-empty">No departments have been created.</div>}
+            </div><div className="sc-detail-panel">{selectedDepartment ? <>
+              <p className="sc-kicker">DEPARTMENT DETAILS</p><div className="sc-dept-symbol mt-4">{selectedDepartment.name.slice(0,1).toUpperCase()}</div><h4 className="mt-3 text-xl font-semibold text-white">{selectedDepartment.name}</h4><p className="mt-2 text-sm leading-6 text-slate-400">{selectedDepartment.description || "No description has been added for this department."}</p><div className="my-5 border-t border-white/[0.08]" /><div className="flex items-center justify-between"><span className="text-xs font-semibold text-slate-300">Assigned members</span><span className="sc-count-chip">{departmentAssignments.length}</span></div>
+              {assignmentsLoading ? <p className="mt-3 text-xs text-slate-500">Loading members…</p> : departmentAssignments.length ? <ul className="mt-3 space-y-2">{departmentAssignments.map((assignment)=><li key={assignment.user_id} className="flex items-center justify-between gap-2 rounded-lg bg-white/[0.035] p-2.5"><span className="truncate text-xs text-slate-300">{assignment.display_name || assignment.email || "Member"}</span>{canManage && <button type="button" onClick={()=>void unassignDepartmentMember(assignment)} className="text-[11px] text-rose-300">Remove</button>}</li>)}</ul> : <p className="mt-3 text-xs text-slate-500">No members assigned yet.</p>}
+              {canManage && <form onSubmit={assignDepartmentMember} className="mt-5 border-t border-white/[0.08] pt-4"><label className="sc-field-label" htmlFor={`assignment-user-${organization.organization_id}`}>Add a team member</label><select id={`assignment-user-${organization.organization_id}`} required value={assignmentUserId} onChange={(event)=>setAssignmentUserId(event.target.value)} className="sc-input"><option value="">Choose a member</option>{members.filter((member)=>!departmentAssignments.some((assignment)=>assignment.user_id===member.user_id)).map((member)=><option key={member.user_id} value={member.user_id}>{member.display_name || member.email || member.user_id}</option>)}</select><button type="submit" disabled={assignmentSaving || !assignmentUserId} className="sc-action-button mt-3">{assignmentSaving ? "Assigning…" : "Assign member"}</button></form>}
+            </> : <div className="sc-empty h-full">Select a department to see its details.</div>}</div></div>
+            {assignmentError && <p role="alert" className="sc-inline-error mt-3">{assignmentError}</p>}{assignmentSuccess && <p role="status" className="sc-inline-success mt-3">{assignmentSuccess}</p>}
+            {canManage && <form onSubmit={createDepartment} className="sc-form-panel mt-5"><p className="sc-kicker">GROW YOUR WORKSPACE</p><h4 className="mt-2 text-base font-semibold text-white">Create a department</h4><div className="mt-4 grid gap-3 md:grid-cols-2"><div><label className="sc-field-label" htmlFor={`department-name-${organization.organization_id}`}>Department name</label><input id={`department-name-${organization.organization_id}`} required minLength={2} maxLength={100} value={name} onChange={(event)=>setName(event.target.value)} placeholder="e.g. Human Resources" className="sc-input" /></div><div><label className="sc-field-label" htmlFor={`department-description-${organization.organization_id}`}>Description (optional)</label><input id={`department-description-${organization.organization_id}`} maxLength={500} value={description} onChange={(event)=>setDescription(event.target.value)} placeholder="What does this team do?" className="sc-input" /></div></div>{success && <p role="status" className="sc-inline-success mt-3">{success}</p>}<button type="submit" disabled={saving || !name.trim()} className="sc-action-button mt-4">{saving ? "Creating…" : "Create department"}</button></form>}
+          </section>}
+          {activeSection === "people" && <section>
+            <div className="sc-section-heading"><div><p className="sc-kicker">YOUR TEAM</p><h3 className="mt-2 text-2xl font-semibold text-white">People</h3><p className="mt-1 text-sm text-slate-500">Organization members and their department assignments.</p></div><span className="sc-count-chip">{members.length} members</span></div>
+            {memberError && <p role="alert" className="sc-inline-error mt-4">{memberError}</p>}{memberSuccess && <p role="status" className="sc-inline-success mt-3">{memberSuccess}</p>}
+            {membersLoading ? <div className="sc-empty mt-5">Loading people…</div> : members.length ? <div className="mt-5 overflow-hidden rounded-xl border border-white/[0.08]">{members.map((member)=><div key={member.user_id} className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] bg-white/[0.02] p-4 last:border-0"><div className="flex min-w-0 items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-cyan-200/15 bg-cyan-200/[0.06] text-sm font-semibold text-cyan-100">{(member.display_name || member.email || "U").slice(0,1).toUpperCase()}</span><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-100">{member.display_name || member.email || "SaviraCortex user"}</p><p className="mt-1 truncate text-xs text-slate-500">{member.email || member.user_id}</p></div></div><div className="flex items-center gap-2">{organization.role==="owner" && member.role!=="owner" ? <select aria-label={`Role for ${member.display_name || member.email || "member"}`} value={member.role} onChange={(event)=>void changeMemberRole(member,event.target.value)} className="sc-select"><option value="member">Member</option><option value="admin">Admin</option></select> : <span className="sc-role-chip capitalize">{member.role}</span>}{canManage && member.role!=="owner" && <button type="button" onClick={()=>void removeMember(member)} className="sc-danger-link">Remove</button>}</div></div>)}</div> : <div className="sc-empty mt-5">No organization members found.</div>}
+            {canManage && <form onSubmit={addMember} className="sc-form-panel mt-5"><p className="sc-kicker">TEAM ACCESS</p><h4 className="mt-2 text-base font-semibold text-white">Add an existing member</h4><p className="mt-1 text-xs text-slate-500">Use the user ID from their SaviraCortex profile.</p><div className="mt-4 grid gap-3 md:grid-cols-[1fr_180px_auto]"><input required value={memberUserId} onChange={(event)=>setMemberUserId(event.target.value)} placeholder="User UUID" className="sc-input" aria-label="User ID" />{organization.role==="owner" && <select value={memberRole} onChange={(event)=>setMemberRole(event.target.value)} className="sc-select"><option value="member">Member</option><option value="admin">Admin</option></select>}<button type="submit" disabled={memberSaving || !memberUserId.trim()} className="sc-action-button">{memberSaving ? "Adding…" : "Add member"}</button></div></form>}
+          </section>}
+          {activeSection === "access" && <section>
+            <div className="sc-section-heading"><div><p className="sc-kicker">GOVERNANCE</p><h3 className="mt-2 text-2xl font-semibold text-white">Access & roles</h3><p className="mt-1 text-sm text-slate-500">Invite teammates and define organization role labels.</p></div><span className="sc-count-chip">{roles.length} roles</span></div>
+            <div className="mt-5"><InvitationPanel organization={organization} token={token} /></div>
+            <div className="mt-6 grid gap-4 xl:grid-cols-2"><div className="sc-detail-panel"><p className="sc-kicker">ROLE CATALOGUE</p><h4 className="mt-2 text-lg font-semibold text-white">Custom roles</h4><p className="mt-1 text-xs text-slate-500">Create role labels that reflect how your organization works.</p>{rolesLoading ? <p className="mt-4 text-xs text-slate-500">Loading roles…</p> : roles.length ? <ul className="mt-4 space-y-2">{roles.map((role)=><li key={role.id} className="rounded-lg border border-white/[0.07] bg-white/[0.025] p-3"><p className="text-sm font-semibold text-slate-200">{role.name}</p>{role.description && <p className="mt-1 text-xs text-slate-500">{role.description}</p>}</li>)}</ul> : <p className="mt-4 text-xs text-slate-500">No custom roles yet.</p>}</div>
+              {canManage && <form onSubmit={createRole} className="sc-form-panel"><p className="sc-kicker">DEFINE A ROLE</p><h4 className="mt-2 text-base font-semibold text-white">Create custom role</h4><label className="sc-field-label mt-4" htmlFor={`role-name-${organization.organization_id}`}>Role name</label><input id={`role-name-${organization.organization_id}`} required minLength={2} maxLength={100} value={roleName} onChange={(event)=>setRoleName(event.target.value)} placeholder="e.g. Knowledge Manager" className="sc-input" /><label className="sc-field-label mt-4" htmlFor={`role-description-${organization.organization_id}`}>Description (optional)</label><textarea id={`role-description-${organization.organization_id}`} rows={3} maxLength={500} value={roleDescription} onChange={(event)=>setRoleDescription(event.target.value)} placeholder="Describe the responsibilities of this role" className="sc-input h-auto py-3" />{roleError && <p role="alert" className="sc-inline-error mt-3">{roleError}</p>}{roleSuccess && <p role="status" className="sc-inline-success mt-3">{roleSuccess}</p>}<button type="submit" disabled={roleSaving || !roleName.trim()} className="sc-action-button mt-4">{roleSaving ? "Creating…" : "Create role"}</button></form>}
+            </div>
+          </section>}
         </div>
-        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs capitalize text-emerald-300">{organization.role}</span>
       </div>
-      <p className="mt-3 break-all text-xs text-slate-500">ID: {organization.organization_id}</p>
-      <Link href={`/dashboard/chat?organizationId=${organization.organization_id}`} className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-300/20 bg-gradient-to-r from-cyan-950/35 to-slate-900/70 p-4 transition hover:border-cyan-200/40 hover:bg-cyan-950/40">
-        <div><h3 className="text-sm font-semibold text-cyan-100">Knowledge assistant</h3><p className="mt-1 text-xs text-slate-400">Ask questions and explore answers grounded in authorized documents.</p></div>
-        <span className="rounded-lg border border-cyan-200/20 bg-cyan-200/10 px-3 py-2 text-xs font-semibold text-cyan-100">Open chat ↗</span>
-      </Link>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-900/40 bg-cyan-950/15 p-4">
-        <div><h3 className="text-sm font-semibold text-slate-100">Knowledge base</h3><p className="mt-1 text-xs text-slate-400">Add a PDF to the organization&apos;s document collection.</p></div>
-        <DocumentIngestionModal organization={organization} uploaderId={uploaderId} departments={departments} />
-      </div>
-      <InvitationPanel organization={organization} token={token} />
-      <div className="my-6 border-t border-slate-800" />
-      <div className="flex items-center justify-between gap-3">
-        <div><h3 className="font-semibold text-slate-100">Departments</h3><p className="mt-1 text-xs text-slate-500">Teams and divisions inside this organization</p></div>
-        <span className="rounded-lg bg-slate-800 px-2.5 py-1 text-xs text-slate-300">{departments.length}</span>
-      </div>
-      {loading ? <p className="mt-4 text-sm text-slate-400">Loading departments…</p> :
-        departments.length ? <ul className="mt-4 grid gap-2 sm:grid-cols-2">{departments.map((department) => (
-          <li key={department.id} className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-            <p className="text-sm font-medium text-slate-200">{department.name}</p>
-            {department.description && <p className="mt-1 text-xs leading-5 text-slate-500">{department.description}</p>}
-          </li>
-        ))}</ul> : <p className="mt-4 rounded-xl border border-dashed border-slate-700 p-4 text-sm text-slate-500">No departments yet. Create the first one below.</p>}
-      {canManage && <form onSubmit={createDepartment} className="mt-6 rounded-xl border border-cyan-900/50 bg-cyan-950/20 p-4">
-        <h4 className="text-sm font-semibold text-cyan-100">Add a department</h4>
-        <label className="mt-4 block text-xs font-medium text-slate-300" htmlFor={`department-name-${organization.organization_id}`}>Department name</label>
-        <input id={`department-name-${organization.organization_id}`} required minLength={2} maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Human Resources" className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/10" />
-        <label className="mt-4 block text-xs font-medium text-slate-300" htmlFor={`department-description-${organization.organization_id}`}>Description <span className="text-slate-500">(optional)</span></label>
-        <textarea id={`department-description-${organization.organization_id}`} rows={2} maxLength={500} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What does this department do?" className="mt-2 w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/10" />
-        {error && <p role="alert" className="mt-3 text-sm text-rose-300">{error}</p>}
-        {success && <p role="status" className="mt-3 text-sm text-emerald-300">{success}</p>}
-        <button type="submit" disabled={saving || !name.trim()} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-cyan-300 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Creating…" : "Create department"} <span aria-hidden="true">↗</span></button>
-      </form>}
-      {!canManage && <p className="mt-5 text-xs text-slate-500">Only organization owners and admins can create departments.</p>}
-      {!canManage && error && <p role="alert" className="mt-3 text-sm text-rose-300">{error}</p>}
-
-      <div className="my-6 border-t border-slate-800" />
-      <section aria-labelledby={`members-heading-${organization.organization_id}`}>
-        <div className="flex items-center justify-between gap-3">
-          <div><h3 id={`members-heading-${organization.organization_id}`} className="font-semibold text-slate-100">Organization members</h3><p className="mt-1 text-xs text-slate-500">Manage who belongs to this workspace</p></div>
-          <span className="rounded-lg bg-slate-800 px-2.5 py-1 text-xs text-slate-300">{members.length}</span>
-        </div>
-        {membersLoading ? <p className="mt-4 text-sm text-slate-400">Loading members…</p> :
-          members.length ? <ul className="mt-4 space-y-2">{members.map((member) => (
-            <li key={member.user_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-slate-200">{member.display_name || member.email || "SaviraCortex user"}</p>
-                <p className="mt-1 break-all text-xs text-slate-500">{member.email || member.user_id}</p>
-                {member.custom_roles?.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{member.custom_roles.map((customRole) => <span key={customRole} className="rounded-full border border-violet-400/30 bg-violet-400/10 px-2 py-0.5 text-[11px] capitalize text-violet-200">{customRole}</span>)}</div>}
-              </div>
-              <div className="flex items-center gap-2">
-                {organization.role === "owner" && member.role !== "owner" ?
-                  <select aria-label={`Role for ${member.display_name || member.email || "member"}`} value={member.role} onChange={(event) => void changeMemberRole(member, event.target.value)} className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200">
-                    <option value="member">Member</option><option value="admin">Admin</option>
-                  </select> :
-                  <span className="rounded-full border border-slate-700 px-2.5 py-1 text-xs capitalize text-slate-400">{member.role}</span>}
-                {canManage && member.role !== "owner" && <button type="button" onClick={() => void removeMember(member)} className="rounded-lg border border-rose-900/60 px-2.5 py-1.5 text-xs text-rose-300 transition hover:bg-rose-950/50">Remove</button>}
-              </div>
-            </li>
-          ))}</ul> : <p className="mt-4 rounded-xl border border-dashed border-slate-700 p-4 text-sm text-slate-500">No members found.</p>}
-        {memberError && <p role="alert" className="mt-3 text-sm text-rose-300">{memberError}</p>}
-        {memberSuccess && <p role="status" className="mt-3 text-sm text-emerald-300">{memberSuccess}</p>}
-        {canManage && <form onSubmit={addMember} className="mt-5 rounded-xl border border-cyan-900/50 bg-cyan-950/20 p-4">
-          <h4 className="text-sm font-semibold text-cyan-100">Add an existing SaviraCortex user</h4>
-          <p className="mt-1 text-xs leading-5 text-slate-400">Enter the user ID from their SaviraCortex profile. This does not create a Firebase account or send an invitation.</p>
-          <label className="mt-4 block text-xs font-medium text-slate-300" htmlFor={`member-user-${organization.organization_id}`}>User ID</label>
-          <input id={`member-user-${organization.organization_id}`} required value={memberUserId} onChange={(event) => setMemberUserId(event.target.value)} placeholder="Paste the user's UUID" className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/10" />
-          {organization.role === "owner" && <><label className="mt-4 block text-xs font-medium text-slate-300" htmlFor={`member-role-${organization.organization_id}`}>Organization role</label><select id={`member-role-${organization.organization_id}`} value={memberRole} onChange={(event) => setMemberRole(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white"><option value="member">Member</option><option value="admin">Admin</option></select></>}
-          <button type="submit" disabled={memberSaving || !memberUserId.trim()} className="mt-4 rounded-lg bg-cyan-300 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-50">{memberSaving ? "Adding…" : "Add member"}</button>
-        </form>}
-        {!canManage && <p className="mt-4 text-xs text-slate-500">Only organization owners and admins can add or remove members.</p>}
-      </section>
-
-      <div className="my-6 border-t border-slate-800" />
-      <section aria-labelledby={`department-members-heading-${organization.organization_id}`}>
-        <div><h3 id={`department-members-heading-${organization.organization_id}`} className="font-semibold text-slate-100">Department membership</h3><p className="mt-1 text-xs text-slate-500">Assign organization members to departments</p></div>
-        {departments.length === 0 ? <p className="mt-4 rounded-xl border border-dashed border-slate-700 p-4 text-sm text-slate-500">Create a department before assigning members.</p> : <>
-          <label className="mt-4 block text-xs font-medium text-slate-300" htmlFor={`assignment-department-${organization.organization_id}`}>Department</label>
-          <select id={`assignment-department-${organization.organization_id}`} value={selectedDepartmentId} onChange={(event) => setSelectedDepartmentId(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
-            {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-          </select>
-          {assignmentsLoading ? <p className="mt-4 text-sm text-slate-400">Loading department members…</p> :
-            departmentAssignments.length ? <ul className="mt-4 space-y-2">{departmentAssignments.map((assignment) => (
-              <li key={assignment.user_id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-                <div className="min-w-0"><p className="truncate text-sm text-slate-200">{assignment.display_name || assignment.email || "SaviraCortex user"}</p><p className="truncate text-xs text-slate-500">{assignment.email || assignment.user_id}</p></div>
-                {canManage && <button type="button" onClick={() => void unassignDepartmentMember(assignment)} className="shrink-0 rounded-lg border border-rose-900/60 px-2.5 py-1.5 text-xs text-rose-300 transition hover:bg-rose-950/50">Unassign</button>}
-              </li>
-            ))}</ul> : !assignmentsLoading && <p className="mt-4 text-sm text-slate-500">No members assigned to this department yet.</p>}
-          {canManage && <form onSubmit={assignDepartmentMember} className="mt-5 rounded-xl border border-violet-900/50 bg-violet-950/20 p-4">
-            <h4 className="text-sm font-semibold text-violet-100">Assign a member</h4>
-            <label className="mt-4 block text-xs font-medium text-slate-300" htmlFor={`assignment-user-${organization.organization_id}`}>Organization member</label>
-            <select id={`assignment-user-${organization.organization_id}`} required value={assignmentUserId} onChange={(event) => setAssignmentUserId(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
-              <option value="">Select a member</option>
-              {members.filter((member) => !departmentAssignments.some((assignment) => assignment.user_id === member.user_id)).map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name || member.email || member.user_id}</option>)}
-            </select>
-            <button type="submit" disabled={assignmentSaving || !assignmentUserId} className="mt-4 rounded-lg bg-violet-300 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-violet-200 disabled:cursor-not-allowed disabled:opacity-50">{assignmentSaving ? "Assigning…" : "Assign to department"}</button>
-          </form>}
-        </>}
-        {assignmentError && <p role="alert" className="mt-3 text-sm text-rose-300">{assignmentError}</p>}
-        {assignmentSuccess && <p role="status" className="mt-3 text-sm text-emerald-300">{assignmentSuccess}</p>}
-        {!canManage && <p className="mt-4 text-xs text-slate-500">Only organization owners and admins can change department assignments.</p>}
-      </section>
-
-      <div className="my-6 border-t border-slate-800" />
-      <div className="flex items-center justify-between gap-3">
-        <div><h3 className="font-semibold text-slate-100">Custom roles</h3><p className="mt-1 text-xs text-slate-500">Define role names for your organization</p></div>
-        <span className="rounded-lg bg-slate-800 px-2.5 py-1 text-xs text-slate-300">{roles.length}</span>
-      </div>
-      {rolesLoading ? <p className="mt-4 text-sm text-slate-400">Loading roles…</p> :
-        roles.length ? <ul className="mt-4 grid gap-2 sm:grid-cols-2">{roles.map((role) => (
-          <li key={role.id} className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-            <p className="text-sm font-medium text-slate-200">{role.name}</p>
-            {role.description && <p className="mt-1 text-xs leading-5 text-slate-500">{role.description}</p>}
-          </li>
-        ))}</ul> : <p className="mt-4 rounded-xl border border-dashed border-slate-700 p-4 text-sm text-slate-500">No custom roles yet. Add a role to define your organization&apos;s role catalogue.</p>}
-      {canManage && <form onSubmit={createRole} className="mt-6 rounded-xl border border-violet-900/50 bg-violet-950/20 p-4">
-        <h4 className="text-sm font-semibold text-violet-100">Create a custom role</h4>
-        <label className="mt-4 block text-xs font-medium text-slate-300" htmlFor={`role-name-${organization.organization_id}`}>Role name</label>
-        <input id={`role-name-${organization.organization_id}`} required minLength={2} maxLength={100} value={roleName} onChange={(event) => setRoleName(event.target.value)} placeholder="e.g. Knowledge Manager" className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/10" />
-        <label className="mt-4 block text-xs font-medium text-slate-300" htmlFor={`role-description-${organization.organization_id}`}>Description <span className="text-slate-500">(optional)</span></label>
-        <textarea id={`role-description-${organization.organization_id}`} rows={2} maxLength={500} value={roleDescription} onChange={(event) => setRoleDescription(event.target.value)} placeholder="Describe the responsibilities of this role" className="mt-2 w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/10" />
-        {roleError && <p role="alert" className="mt-3 text-sm text-rose-300">{roleError}</p>}
-        {roleSuccess && <p role="status" className="mt-3 text-sm text-emerald-300">{roleSuccess}</p>}
-        <button type="submit" disabled={roleSaving || !roleName.trim()} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-violet-300 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-violet-200 disabled:cursor-not-allowed disabled:opacity-50">{roleSaving ? "Creating…" : "Create role"} <span aria-hidden="true">↗</span></button>
-      </form>}
-      {!canManage && <p className="mt-5 text-xs text-slate-500">Only organization owners and admins can create custom roles.</p>}
     </article>
   );
 }
@@ -510,19 +436,19 @@ export default function DashboardPage() {
     router.replace("/login");
   }
 
-  return <main className="min-h-screen bg-slate-950 text-white">
-    <nav className="mx-auto flex max-w-6xl justify-between px-6 py-6">
-      <Link href="/" className="text-xl font-bold"><span className="text-cyan-400">Savira</span>Cortex</Link>
-      <button onClick={logout} className="rounded-xl border border-slate-700 px-4 py-2 text-sm transition hover:border-slate-500">Sign out</button>
-    </nav>
-    <section className="mx-auto max-w-6xl px-6 py-12">
-      <p className="text-sm font-semibold tracking-widest text-cyan-400">WORKSPACE</p>
-      <h1 className="mt-3 text-4xl font-semibold">Welcome{profile?.display_name ? `, ${profile.display_name}` : ""}.</h1>
-      <p className="mt-3 text-slate-400">Manage your organization, departments, and custom roles.</p>
-      {loading ? <p className="mt-6 text-slate-400">Loading account…</p> :
-        error ? <p role="alert" className="mt-6 rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-200">{error}</p> :
-        <div className="mt-8 grid gap-5 lg:grid-cols-2">{profile?.organizations.map((organization) => <DepartmentPanel key={organization.organization_id} organization={organization} token={token} uploaderId={profile.user_id} />)}</div>}
-      {profile && <p className="mt-8 text-sm text-slate-500">Signed in using {profile.sign_in_provider || "Firebase"} · {profile.email || profile.phone_number}</p>}
-    </section>
-  </main>;
+  return (
+    <main className="sc-dashboard min-h-screen text-slate-100">
+      <header className="sc-topbar">
+        <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+          <Link href="/" className="flex items-center gap-3"><span className="sc-brand-mark">S</span><span className="text-sm font-semibold tracking-tight text-white">SAVIRA<span className="text-cyan-300">CORTEX</span><span className="ml-2 hidden text-[10px] font-medium tracking-[.16em] text-slate-500 sm:inline">WORKSPACE</span></span></Link>
+          <div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-xs font-semibold text-slate-200">{profile?.display_name || "Workspace member"}</p><p className="mt-0.5 text-[10px] text-slate-500">{profile?.email || profile?.phone_number}</p></div><span className="sc-user-avatar">{(profile?.display_name || profile?.email || "U").slice(0,1).toUpperCase()}</span><button onClick={logout} className="sc-signout">Sign out</button></div>
+        </div>
+      </header>
+      <section className="mx-auto w-full max-w-[1600px] px-4 pb-12 pt-8 sm:px-6 lg:px-8 lg:pt-12">
+        <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="sc-kicker">INTELLIGENCE WORKSPACE / OVERVIEW</p><h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">Good to see you{profile?.display_name ? `, ${profile.display_name.split(" ")[0]}` : ""}.</h1><p className="mt-2 text-sm text-slate-400">Your organization, departments and knowledge—within reach.</p></div><div className="sc-date-chip"><span className="sc-live-dot" /> SECURE WORKSPACE</div></div>
+        {loading ? <div className="sc-loading-shell"><div className="sc-skeleton h-8 w-48" /><div className="sc-skeleton mt-4 h-28 w-full" /><div className="mt-4 grid gap-4 md:grid-cols-2"><div className="sc-skeleton h-56" /><div className="sc-skeleton h-56" /></div></div> : error ? <p role="alert" className="sc-inline-error">{error}</p> : profile?.organizations.length ? <div className="space-y-6">{profile.organizations.map((organization)=><DepartmentPanel key={organization.organization_id} organization={organization} token={token} uploaderId={profile.user_id} />)}</div> : <div className="sc-empty py-16"><strong>No organization yet</strong><span>Create an organization or accept an invitation to begin.</span></div>}
+        {profile && <p className="mt-8 text-center text-[10px] text-slate-600">Signed in using {profile.sign_in_provider || "Firebase"} · {profile.email || profile.phone_number}</p>}
+      </section>
+    </main>
+  );
 }
