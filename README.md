@@ -7,7 +7,7 @@ Next.js App Router frontend for SaviraCortex.
 1. Create a Firebase **Web app** in the same Firebase project used by the backend Admin SDK.
 2. In Firebase Console, enable the Authentication providers used by the app: **Email/Password**, **Google** and **Phone**.
 3. Copy `firebase-config.example.txt` to `.env.local` and fill in the web-app values from **Project settings → General → Your apps → Web app**.
-4. Set `NEXT_PUBLIC_API_BASE_URL` if the backend is not running at `http://localhost:8000`.
+4. Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` (or the intended backend URL).
 5. Start the backend and frontend in separate terminals. Restart Next.js after changing `.env.local`.
 
 Do not put the Admin SDK service-account JSON or private key in the frontend. The `NEXT_PUBLIC_FIREBASE_*` values are Firebase browser-app configuration, not Admin credentials.
@@ -21,12 +21,27 @@ npm run dev
 
 Open http://localhost:3000.
 
-## Frontend routes
+## Routes
 
-- `/`: public SaviraCortex homepage.
-- `/login`: Email/Password, Google and Phone sign-in.
-- `/register`: identity registration, email verification or phone verification, then organization signup.
-- `/dashboard`: authenticated organization overview and department management.
+| Route | Purpose |
+|---|---|
+| `/` | Public SaviraCortex homepage |
+| `/login` | Email/Password, Google and Phone sign-in |
+| `/register` | Firebase registration and organization onboarding |
+| `/signup` | Additional signup route |
+| `/dashboard` | Authenticated organization workspace |
+| `/dashboard/chat` | Organization-grounded chat UI |
+| `/invitations/accept` | Invitation acceptance |
+
+## Dashboard components
+
+- `dashboard/page.tsx`: organization workspace, members, roles, departments and navigation.
+- `dashboard/InvitationPanel.tsx`: organization invitation workflows.
+- `dashboard/DocumentIngestionModal.tsx`: document upload and ingestion UI.
+- `dashboard/DocumentLibrary.tsx`: document listing, detail/version history, metadata and summary editing, archive/restore and deletion.
+- `BatchIngestionWidget.tsx`: batch upload progress presentation.
+
+The batch progress widget is browser UI state; it is not a durable background job service.
 
 ## Authentication and organization signup
 
@@ -36,25 +51,10 @@ After identity verification, the frontend calls:
 
 `POST /api/v1/auth/organizations/signup`
 
-with `Authorization: Bearer <Firebase ID token>` and JSON:
+with `Authorization: Bearer <Firebase ID token>` and the signup request body. FastAPI verifies the token and the signup service validates trusted identity claims before creating SaviraCortex records.
 
-```json
-{
-  "organization_name": "Example Organization",
-  "admin_name": "Initial Administrator"
-}
-```
+## Authenticated API requests
 
-FastAPI verifies the Firebase ID token and the signup service validates the trusted identity claims before creating the SaviraCortex user, organization and initial membership in a database transaction.
+API requests send the Firebase ID token as a Bearer token. The backend verifies identity and then checks SaviraCortex user registration, organization membership and required role. Hiding controls in the UI is only a usability feature; backend authorization remains authoritative.
 
-## Dashboard department API
-
-The dashboard calls `GET /api/v1/auth/me` to retrieve the authenticated user and organization memberships.
-
-For each organization, it calls:
-- `GET /api/v1/organizations/{organization_id}/departments`
-- `POST /api/v1/organizations/{organization_id}/departments`
-
-Department creation is restricted by the backend to organization owners/admins. The dashboard hides the form from ordinary members as a usability measure; the backend remains the authorization boundary.
-
-The API is documented at http://localhost:8000/api/v1/docs.
+Current API route families and the end-to-end architecture are documented in [the project-wide checkpoint](../backend/docs/31-project-wide-current-state.md). The live API contract is available at http://localhost:8000/api/v1/docs.
