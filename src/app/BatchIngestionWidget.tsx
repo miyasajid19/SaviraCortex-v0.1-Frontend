@@ -5,7 +5,7 @@ import { auth } from "./firebase";
 
 type Organization = { organization_id: string; organization_name: string };
 type Department = { id: string; name: string };
-type OpenDetail = { organization: Organization; uploaderId: string; departments: Department[] };
+type OpenDetail = { organization: Organization; uploaderId: string; departments: Department[]; targetDocumentId?: string; targetDocumentTitle?: string };
 type Analysis = {
   status: "ready_for_review" | "duplicate";
   ingestion_session_id: string | null;
@@ -81,11 +81,12 @@ export default function BatchIngestionWidget() {
   }, []);
 
   const selectedItem = useMemo(() => items.find((item) => item.item_id === selectedId) ?? null, [items, selectedId]);
-  const completedCount = items.filter((item) => ["ready_for_review", "duplicate", "failed", "indexed", "indexing_failed", "rejected"].includes(item.status)).length;
+  const completedCount = items.filter((item) => ["duplicate", "indexed", "rejected"].includes(item.status)).length;
   const reviewCount = items.filter((item) => item.status === "ready_for_review").length;
   const activeCount = items.filter((item) => item.status === "processing" || item.status === "queued").length;
   const progressPercent = batchTotal ? Math.round((completedCount / batchTotal) * 100) : 0;
   const hasBatch = items.length > 0;
+  const batchSettled = !isRunning && hasBatch && items.every((item) => ["duplicate", "indexed", "rejected"].includes(item.status));
 
   function chooseFiles(event: ChangeEvent<HTMLInputElement>) {
     const incoming = Array.from(event.target.files ?? []);
@@ -203,7 +204,7 @@ export default function BatchIngestionWidget() {
     setDocumentType(item.analysis.document_type || "General document");
     setDescription(item.analysis.description || item.analysis.summary || "");
     setDepartmentId("");
-    setTargetDocumentId(item.analysis.matching_candidates[0]?.document_id || "");
+    setTargetDocumentId(context?.targetDocumentId || item.analysis.matching_candidates[0]?.document_id || "");
     setArchived(false);
     setError("");
     setIsOpen(true);
@@ -243,8 +244,11 @@ export default function BatchIngestionWidget() {
       }
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(messageFrom(data, `Could not save ${selectedItem.filename} (HTTP ${response.status}).`));
+      if (data.document_id && context) {
+        window.dispatchEvent(new CustomEvent("savira:documents-changed", { detail: { organization_id: context.organization.organization_id } }));
+      }
       setItems((current) => current.map((item) => item.item_id === selectedId
-        ? { ...item, status: data.status === "rejected" ? "rejected" : data.status as BatchItem["status"], finalizeStatus: data.status }
+        ? { ...item, status: data.status === "rejected" ? "rejected" : data.status as BatchItem["status"], message: data.status.replace(/_/g, " "), finalizeStatus: data.status }
         : item));
       setSelectedId(null);
       setError("");
@@ -259,7 +263,7 @@ export default function BatchIngestionWidget() {
 
   return (
     <>
-      {(hasBatch || isRunning) && !isOpen && (
+      {(hasBatch || isRunning) && !isOpen && !batchSettled && (
         <button type="button" onClick={() => setIsOpen(true)} className="fixed bottom-5 right-5 z-[900] flex items-center gap-3 rounded-full border border-cyan-300/40 bg-slate-950 px-4 py-3 text-left text-white shadow-2xl shadow-black/40 transition hover:-translate-y-0.5 hover:border-cyan-200" aria-label="Open document ingestion progress">
           <span className="relative grid size-9 place-items-center rounded-full bg-cyan-300 text-sm font-bold text-slate-950">
             {isRunning ? <span className="animate-pulse">↻</span> : "PDF"}
@@ -302,9 +306,9 @@ export default function BatchIngestionWidget() {
                       <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold text-cyan-100">Review document</p><p className="mt-1 truncate text-xs text-slate-400">{selectedItem.filename}</p></div><button type="button" onClick={() => setSelectedId(null)} className="text-xs text-slate-400 hover:text-white">Back to batch</button></div>
                       <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs text-slate-300">Title<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={255} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" /></label><label className="text-xs text-slate-300">Document type<input value={documentType} onChange={(event) => setDocumentType(event.target.value)} maxLength={100} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" /></label><label className="text-xs text-slate-300 sm:col-span-2">Description<textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} maxLength={10000} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" /></label><label className="text-xs text-slate-300">Department<select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"><option value="">No department</option>{context.departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label><label className="flex items-center gap-2 self-end pb-2 text-xs text-slate-300"><input type="checkbox" checked={archived} onChange={(event) => setArchived(event.target.checked)} /> Archived</label></div>
                       {selectedItem.analysis?.summary && <p className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-950/70 p-3 text-xs leading-5 text-slate-300">{selectedItem.analysis.summary}</p>}
-                      {selectedItem.analysis?.matching_classification === "potential_match" && <label className="block text-xs text-amber-100">Potentially related document<select value={targetDocumentId} onChange={(event) => setTargetDocumentId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"><option value="">Choose a document to supersede</option>{selectedItem.analysis.matching_candidates.map((candidate) => <option key={candidate.document_id} value={candidate.document_id}>{candidate.title || "Untitled document"} · v{candidate.version_number}</option>)}</select><span className="mt-1 block text-[10px] text-slate-500">You can supersede the selected version or ingest this as an independent document.</span></label>}
+                      {(context?.targetDocumentId || selectedItem.analysis?.matching_classification !== "no_match") && <label className="block text-xs text-amber-100">Matching document<select value={targetDocumentId} onChange={(event) => setTargetDocumentId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"><option value="">Choose a document to supersede</option>{context?.targetDocumentId && !selectedItem.analysis?.matching_candidates.some((candidate) => candidate.document_id === context.targetDocumentId) && <option value={context.targetDocumentId}>{context.targetDocumentTitle || "Selected document"}</option>}{(selectedItem.analysis?.matching_candidates || []).map((candidate) => <option key={candidate.document_id} value={candidate.document_id}>{candidate.title || "Untitled document"} · v{candidate.version_number}</option>)}</select><span className="mt-1 block text-[10px] text-slate-500">You can supersede the selected version or ingest this as an independent document.</span></label>}
                       {error && <p role="alert" className="text-xs text-rose-200">{error}</p>}
-                      <div className="flex flex-wrap justify-end gap-2"><button type="button" disabled={saving} onClick={() => void finalizeSelected("reject")} className="rounded-lg border border-rose-400/30 px-3 py-2 text-xs text-rose-200 disabled:opacity-40">Reject</button>{selectedItem.analysis?.matching_classification === "potential_match" ? <><button type="button" disabled={saving || !targetDocumentId} onClick={() => void finalizeSelected("supersede")} className="rounded-lg bg-cyan-300 px-4 py-2 text-xs font-semibold text-slate-950 disabled:opacity-40">Supersede selected</button><button type="button" disabled={saving} onClick={() => void finalizeSelected("independent")} className="rounded-lg border border-slate-600 px-3 py-2 text-xs text-slate-200 disabled:opacity-40">Ingest independently</button></> : <button type="button" disabled={saving} onClick={() => void finalizeSelected("new")} className="rounded-lg bg-cyan-300 px-4 py-2 text-xs font-semibold text-slate-950 disabled:opacity-40">{saving ? "Saving…" : "Ingest as new"}</button>}</div>
+                      <div className="flex flex-wrap justify-end gap-2"><button type="button" disabled={saving} onClick={() => void finalizeSelected("reject")} className="rounded-lg border border-rose-400/30 px-3 py-2 text-xs text-rose-200 disabled:opacity-40">Reject</button>{(context?.targetDocumentId || selectedItem.analysis?.matching_classification !== "no_match") ? <><button type="button" disabled={saving || !targetDocumentId} onClick={() => void finalizeSelected("supersede")} className="rounded-lg bg-cyan-300 px-4 py-2 text-xs font-semibold text-slate-950 disabled:opacity-40">Supersede selected</button><button type="button" disabled={saving} onClick={() => void finalizeSelected(selectedItem.analysis?.matching_classification !== "no_match" ? "independent" : "new")} className="rounded-lg border border-slate-600 px-3 py-2 text-xs text-slate-200 disabled:opacity-40">Ingest as new document</button></> : <button type="button" disabled={saving} onClick={() => void finalizeSelected("new")} className="rounded-lg bg-cyan-300 px-4 py-2 text-xs font-semibold text-slate-950 disabled:opacity-40">{saving ? "Saving…" : "Ingest as new"}</button>}</div>
                     </section>
                   ) : (
                     <section className="space-y-2">
