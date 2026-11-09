@@ -11,7 +11,7 @@ import DocumentLibrary from "./DocumentLibrary";
 
 const API = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 
-type Organization = { organization_id: string; organization_name: string; role: string };
+type Organization = { organization_id: string; organization_name: string; role: string; onboarding_completed?: boolean };
 type Profile = {
   user_id: string;
   email: string | null;
@@ -416,21 +416,68 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!auth) return;
-    return onAuthStateChanged(auth, async (user) => {
-      if (!user) { router.replace("/login"); return; }
+
+    let active = true;
+    let authRequestId = 0;
+
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      const requestId = ++authRequestId;
+      if (!user) {
+        if (active) router.replace("/login");
+        return;
+      }
+
+      setLoading(true);
+      setError("");
+
       try {
         const idToken = await user.getIdToken();
-        const response = await fetch(API + "/api/v1/auth/me", { headers: { Authorization: `Bearer ${idToken}` }, cache: "no-store" });
+        let response: Response | null = null;
+        let lastNetworkError: unknown;
+
+        // Retry transient network/5xx failures during the post-signup redirect.
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          try {
+            response = await fetch(API + "/api/v1/auth/me", {
+              headers: { Authorization: `Bearer ${idToken}` },
+              cache: "no-store",
+            });
+            if (response.ok || response.status < 500 || attempt === 3) break;
+          } catch (err) {
+            lastNetworkError = err;
+            if (attempt === 3) throw err;
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+        }
+
+        if (!response) throw lastNetworkError || new Error("Could not connect to the SaviraCortex API.");
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.detail || `Profile failed (HTTP ${response.status}).`);
+
+        if (!active || requestId !== authRequestId) return;
+
+        const firstOrganization = data.organizations?.[0];
+        if (firstOrganization && firstOrganization.onboarding_completed === false) {
+          router.replace(`/onboarding?organization_id=${encodeURIComponent(firstOrganization.organization_id)}`);
+          return;
+        }
+
         setProfile(data);
         setToken(idToken);
       } catch (err) {
-        setError((err as Error).message);
+        if (active && requestId === authRequestId) {
+          setError((err as Error).message || "Could not connect to the SaviraCortex API.");
+        }
       } finally {
-        setLoading(false);
+        if (active && requestId === authRequestId) setLoading(false);
       }
     });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [router]);
 
   async function logout() {

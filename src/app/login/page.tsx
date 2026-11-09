@@ -68,7 +68,12 @@ export default function LoginPage() {
     const data = await response.json().catch(() => ({}));
     if (response.ok) {
       handledUid.current = user.uid;
-      router.replace("/dashboard");
+      const firstOrganization = data.organizations?.[0];
+      if (firstOrganization && firstOrganization.onboarding_completed === false) {
+        router.replace(`/onboarding?organization_id=${encodeURIComponent(firstOrganization.organization_id)}`);
+      } else {
+        router.replace("/dashboard");
+      }
       return;
     }
     if (response.status === 404) {
