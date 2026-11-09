@@ -368,7 +368,7 @@ function DepartmentPanel({ organization, token, uploaderId }: { organization: Or
         <div className="sc-workspace-body">
           <aside className="sc-workspace-sidebar" aria-label="Organization navigation">
             <p className="sc-side-label">KNOWLEDGE</p>
-            <Link href={"/dashboard/chat?organizationId=" + organization.organization_id} className="sc-side-link mt-3 is-active">
+            <Link href="/chat" onClick={() => window.localStorage.setItem("savira.selectedOrganizationId", organization.organization_id)} className="sc-side-link mt-3 is-active">
               <span className="sc-side-icon">&#10033;</span>
               <span className="min-w-0 text-left">
                 <span className="block text-sm font-semibold">AI assistant</span>
