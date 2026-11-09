@@ -65,10 +65,10 @@ function formatDate(value: string | null | undefined) {
 }
 
 function statusClass(status: string) {
-  if (status === "active") return "border-emerald-300/20 bg-emerald-300/10 text-emerald-200";
-  if (status === "superseded") return "border-slate-400/20 bg-slate-400/10 text-slate-300";
-  if (status === "pending") return "border-amber-300/20 bg-amber-300/10 text-amber-200";
-  return "border-white/10 bg-white/[0.04] text-slate-400";
+  if (status === "active") return "border-[#dedee1] bg-[#f7f7f8] text-[#333]";
+  if (status === "superseded") return "border-[#e5e5e7] bg-white text-[#666]";
+  if (status === "pending") return "border-[#dedee1] bg-[#f7f7f8] text-[#555]";
+  return "border-[#e5e5e7] bg-white text-[#777]";
 }
 
 export default function DocumentLibrary({
@@ -398,17 +398,17 @@ export default function DocumentLibrary({
   const latestVersion = (document: DocumentRecord) => document.versions[0];
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-white/[0.09] bg-[#0b1724]/80 shadow-xl shadow-black/10">
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-white/[0.07] px-5 py-5 sm:px-6">
+    <section className="overflow-hidden sc-document-library rounded-2xl border border-[#e8e8ea] bg-white shadow-sm shadow-black/[0.03]">
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[#ededee] px-5 py-5 sm:px-6">
         <div>
           <p className="sc-kicker">KNOWLEDGE / DOCUMENT REGISTER</p>
-          <h3 className="mt-2 text-xl font-semibold text-white">Available documents</h3>
-          <p className="mt-1 text-xs text-slate-500">Browse source files, summaries and the full revision history for this workspace.</p>
+          <h3 className="mt-2 text-xl font-semibold text-[#202024]">Available documents</h3>
+          <p className="mt-1 text-xs text-[#77777f]">Browse source files, summaries and the full revision history for this workspace.</p>
         </div>
         <span className="sc-count-chip">{total} {total === 1 ? "document" : "documents"}</span>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 border-b border-white/[0.06] px-5 py-4 sm:px-6">
+      <div className="flex flex-wrap items-center gap-3 border-b border-[#ededee] px-5 py-4 sm:px-6">
         <form onSubmit={submitSearch} className="flex min-w-[220px] flex-1 gap-2">
           <input
             value={searchInput}
@@ -417,16 +417,16 @@ export default function DocumentLibrary({
             aria-label="Search document titles"
             className="sc-input min-w-0"
           />
-          {searchInput && <button type="button" onClick={() => { setSearchInput(""); setSearch(""); setPage(0); }} className="rounded-lg border border-white/10 px-3 text-xs text-slate-400 hover:text-white">Clear</button>}
+          {searchInput && <button type="button" onClick={() => { setSearchInput(""); setSearch(""); setPage(0); }} className="rounded-lg border border-[#e5e5e7] px-3 text-xs text-[#66666e] hover:text-[#202024]">Clear</button>}
           <button type="submit" className="sc-action-button">Search</button>
         </form>
         {canManage && (
-          <label className="flex items-center gap-2 text-xs text-slate-400">
+          <label className="flex items-center gap-2 text-xs text-[#66666e]">
             <input
               type="checkbox"
               checked={includeArchived}
               onChange={(event) => { setIncludeArchived(event.target.checked); setPage(0); setSelected(null); }}
-              className="accent-cyan-300"
+              className="accent-[#555]"
             />
             Include archived
           </label>
@@ -442,14 +442,14 @@ export default function DocumentLibrary({
             <div className="space-y-3 p-5"><div className="sc-skeleton h-10 w-full" /><div className="sc-skeleton h-16 w-full" /><div className="sc-skeleton h-16 w-full" /></div>
           ) : documents.length ? (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[780px] text-left text-xs">
-                <thead className="bg-white/[0.025] text-[10px] uppercase tracking-[.12em] text-slate-500">
+              <table className="w-full min-w-[780px] table-fixed text-left text-xs">
+                <thead className="bg-[#fafafa] text-[10px] uppercase tracking-[.12em] text-[#77777f]">
                   <tr>
-                    <th className="px-5 py-3 font-semibold sm:px-6">Document</th>
-                    <th className="px-3 py-3 font-semibold">Latest summary</th>
-                    <th className="px-3 py-3 font-semibold">Versions</th>
-                    <th className="px-3 py-3 font-semibold">Current status</th>
-                    <th className="px-5 py-3 font-semibold sm:px-6">Latest version</th>
+                    <th className="w-[30%] px-5 py-3 font-semibold sm:px-6">Document</th>
+                    <th className="w-[30%] px-3 py-3 font-semibold">Latest summary</th>
+                    <th className="w-[9%] px-3 py-3 font-semibold">Versions</th>
+                    <th className="w-[13%] px-3 py-3 font-semibold">Current status</th>
+                    <th className="w-[18%] px-5 py-3 font-semibold sm:px-6">Latest version</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -457,19 +457,19 @@ export default function DocumentLibrary({
                     const latest = latestVersion(document);
                     const isSelected = selected?.id === document.id;
                     return (
-                      <tr key={document.id} className={`border-t border-white/[0.055] transition hover:bg-white/[0.035] ${isSelected ? "bg-cyan-300/[0.055]" : ""}`}>
+                      <tr key={document.id} className={`border-t border-[#ededee] transition hover:bg-[#f8f8f9] ${isSelected ? "bg-[#f2f2f3]" : ""}`}>
                         <td className="px-5 py-4 sm:px-6">
-                          <button type="button" onClick={() => openDocument(document)} className="block w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
-                            <span className="block truncate font-semibold text-slate-100">{document.title}</span>
-                            <span className="mt-1 block truncate text-[10px] text-slate-500">{document.document_type}{(document.department_tags?.length ? document.department_tags.join(", ") : document.department_name) ? ` · ${(document.department_tags?.length ? document.department_tags : [document.department_name]).join(", ")}` : ""}{document.archived ? " · Archived" : ""}</span>
+                          <button type="button" onClick={() => openDocument(document)} className="block w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#777]">
+                            <span title={document.title} className="block max-w-full truncate font-semibold text-[#222226]">{document.title}</span>
+                            <span className="mt-1 block truncate text-[10px] text-[#77777f]">{document.document_type}{(document.department_tags?.length ? document.department_tags.join(", ") : document.department_name) ? ` · ${(document.department_tags?.length ? document.department_tags : [document.department_name]).join(", ")}` : ""}{document.archived ? " · Archived" : ""}</span>
                           </button>
                         </td>
-                        <td className="max-w-[260px] px-3 py-4"><p className="line-clamp-2 text-[10px] leading-4 text-slate-400">{latest?.summary || "No summary available"}</p></td>
-                        <td className="px-3 py-4 text-slate-300">{document.versions.length}</td>
+                        <td className="max-w-[260px] px-3 py-4"><p className="line-clamp-2 text-[10px] leading-4 text-[#66666e]">{latest?.summary || "No summary available"}</p></td>
+                        <td className="px-3 py-4 text-[#55555c]">{document.versions.length}</td>
                         <td className="px-3 py-4">
-                          {latest ? <span className={`rounded-full border px-2 py-1 text-[10px] capitalize ${statusClass(latest.status)}`}>{latest.status}</span> : <span className="text-slate-500">No version</span>}
+                          {latest ? <span className={`rounded-full border px-2 py-1 text-[10px] capitalize ${statusClass(latest.status)}`}>{latest.status}</span> : <span className="text-[#77777f]">No version</span>}
                         </td>
-                        <td className="px-5 py-4 text-slate-500 sm:px-6">{formatDate(latest?.created_at || document.created_at)}</td>
+                        <td className="px-5 py-4 text-[#77777f] sm:px-6">{formatDate(latest?.created_at || document.created_at)}</td>
                       </tr>
                     );
                   })}
@@ -483,36 +483,36 @@ export default function DocumentLibrary({
             </div>
           )}
 
-          <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-5 py-3 sm:px-6">
-            <span className="text-[10px] text-slate-500">{total ? `Showing ${page * PAGE_SIZE + 1}–${Math.min(total, page * PAGE_SIZE + documents.length)} of ${total}` : "No documents"}</span>
+          <div className="flex items-center justify-between gap-3 border-t border-[#ededee] px-5 py-3 sm:px-6">
+            <span className="text-[10px] text-[#77777f]">{total ? `Showing ${page * PAGE_SIZE + 1}–${Math.min(total, page * PAGE_SIZE + documents.length)} of ${total}` : "No documents"}</span>
             <div className="flex items-center gap-2">
-              <button type="button" disabled={page === 0 || loading} onClick={() => setPage((current) => Math.max(0, current - 1))} className="rounded-lg border border-white/10 px-3 py-1.5 text-[10px] text-slate-300 hover:bg-white/[0.05] disabled:opacity-35">Previous</button>
-              <span className="text-[10px] tabular-nums text-slate-500">{page + 1} / {pageCount}</span>
-              <button type="button" disabled={page + 1 >= pageCount || loading} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))} className="rounded-lg border border-white/10 px-3 py-1.5 text-[10px] text-slate-300 hover:bg-white/[0.05] disabled:opacity-35">Next</button>
+              <button type="button" disabled={page === 0 || loading} onClick={() => setPage((current) => Math.max(0, current - 1))} className="rounded-lg border border-[#e5e5e7] px-3 py-1.5 text-[10px] text-[#55555c] hover:bg-[#f7f7f8] disabled:opacity-35">Previous</button>
+              <span className="text-[10px] tabular-nums text-[#77777f]">{page + 1} / {pageCount}</span>
+              <button type="button" disabled={page + 1 >= pageCount || loading} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))} className="rounded-lg border border-[#e5e5e7] px-3 py-1.5 text-[10px] text-[#55555c] hover:bg-[#f7f7f8] disabled:opacity-35">Next</button>
             </div>
           </div>
         </div>
 
         {selected && (
-          <aside className="border-t border-white/[0.08] bg-slate-950/25 p-5 xl:border-l xl:border-t-0 sm:p-6" aria-label="Selected document details">
+          <aside className="border-t border-[#e8e8ea] bg-[#fafafa] p-5 xl:border-l xl:border-t-0 sm:p-6" aria-label="Selected document details">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="sc-kicker">DOCUMENT DETAILS</p>
-                <h4 className="mt-2 break-words text-lg font-semibold text-white">{selected.title}</h4>
-                <p className="mt-1 text-[10px] text-slate-500">{selected.versions.length} stored {selected.versions.length === 1 ? "version" : "versions"} · Added {formatDate(selected.created_at)}</p>
+                <h4 className="mt-2 break-words text-lg font-semibold text-[#202024]">{selected.title}</h4>
+                <p className="mt-1 text-[10px] text-[#77777f]">{selected.versions.length} stored {selected.versions.length === 1 ? "version" : "versions"} · Added {formatDate(selected.created_at)}</p>
               </div>
-              <button type="button" onClick={() => setSelected(null)} aria-label="Close document details" className="grid size-8 shrink-0 place-items-center rounded-lg border border-white/10 text-slate-400 hover:bg-white/[0.05] hover:text-white">×</button>
+              <button type="button" onClick={() => setSelected(null)} aria-label="Close document details" className="grid size-8 shrink-0 place-items-center rounded-lg border border-[#e5e5e7] text-[#66666e] hover:bg-[#f7f7f8] hover:text-[#202024]">×</button>
             </div>
 
             {canManage && (
               <form onSubmit={saveMetadata} className="mt-5 space-y-3">
-                <label className="block text-[11px] text-slate-400">Title
+                <label className="block text-[11px] text-[#66666e]">Title
                   <input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} required maxLength={255} className="sc-input mt-1" />
                 </label>
-                <label className="block text-[11px] text-slate-400">Document type
+                <label className="block text-[11px] text-[#66666e]">Document type
                   <input value={draftType} onChange={(event) => setDraftType(event.target.value)} required maxLength={100} className="sc-input mt-1" />
                 </label>
-                <label className="block text-[11px] text-slate-400">Description
+                <label className="block text-[11px] text-[#66666e]">Description
                   <textarea value={draftDescription} onChange={(event) => setDraftDescription(event.target.value)} rows={3} maxLength={10000} className="sc-input mt-1 h-auto resize-y py-2" />
                 </label>
 <button type="submit" disabled={saving || !draftTitle.trim() || !draftType.trim()} className="sc-action-button w-full">{saving ? "Saving…" : "Save document details"}</button>
@@ -520,18 +520,18 @@ export default function DocumentLibrary({
             )}
 
             {canManage && (
-              <section className="mt-5 rounded-xl border border-slate-800 bg-slate-950/30 p-4">
+              <section className="mt-5 rounded-xl border border-[#e8e8ea] bg-[#fafafa] p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <div><h3 className="text-sm font-semibold text-slate-100">Retrieval access rules</h3><p className="mt-1 text-[10px] text-slate-500">Any matching allow grants access. Any matching deny overrides every grant, including owner/admin retrieval.</p></div>
-                  <label className="flex shrink-0 items-center gap-2 text-[10px] text-slate-300"><input type="checkbox" checked={organizationWideAccess} onChange={(event) => setOrganizationWideAccess(event.target.checked)} />Organization-wide</label>
+                  <div><h3 className="text-sm font-semibold text-[#222226]">Retrieval access rules</h3><p className="mt-1 text-[10px] text-[#77777f]">Any matching allow grants access. Any matching deny overrides every grant, including owner/admin retrieval.</p></div>
+                  <label className="flex shrink-0 items-center gap-2 text-[10px] text-[#55555c]"><input type="checkbox" checked={organizationWideAccess} onChange={(event) => setOrganizationWideAccess(event.target.checked)} />Organization-wide</label>
                 </div>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <div><p className="text-xs font-semibold text-slate-300">Departments — allow</p>{departments.map((item) => <label key={"dept-a-"+item.id} className="mt-2 flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={departmentAllowIds.includes(item.id)} onChange={(event) => setDepartmentAllowIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />{item.name}</label>)}</div>
-                  <div><p className="text-xs font-semibold text-rose-300">Departments — deny</p>{departments.map((item) => <label key={"dept-d-"+item.id} className="mt-2 flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={departmentDenyIds.includes(item.id)} onChange={(event) => setDepartmentDenyIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />{item.name}</label>)}</div>
-                  <div><p className="text-xs font-semibold text-slate-300">Roles — allow</p>{accessRoles.map((item) => <label key={"role-a-"+item.id} className="mt-2 flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={roleAllowIds.includes(item.id)} onChange={(event) => setRoleAllowIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />{item.name}</label>)}</div>
-                  <div><p className="text-xs font-semibold text-rose-300">Roles — deny</p>{accessRoles.map((item) => <label key={"role-d-"+item.id} className="mt-2 flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={roleDenyIds.includes(item.id)} onChange={(event) => setRoleDenyIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />{item.name}</label>)}</div>
-                  <div><p className="text-xs font-semibold text-slate-300">Members — allow</p><div className="mt-2 max-h-32 space-y-2 overflow-y-auto">{accessMembers.map((item) => <label key={"user-a-"+item.user_id} className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={userAllowIds.includes(item.user_id)} onChange={(event) => setUserAllowIds((current) => event.target.checked ? [...current, item.user_id] : current.filter((id) => id !== item.user_id))} />{item.display_name || item.email || item.user_id}</label>)}</div></div>
-                  <div><p className="text-xs font-semibold text-rose-300">Members — deny</p><div className="mt-2 max-h-32 space-y-2 overflow-y-auto">{accessMembers.map((item) => <label key={"user-d-"+item.user_id} className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={userDenyIds.includes(item.user_id)} onChange={(event) => setUserDenyIds((current) => event.target.checked ? [...current, item.user_id] : current.filter((id) => id !== item.user_id))} />{item.display_name || item.email || item.user_id}</label>)}</div></div>
+                  <div><p className="text-xs font-semibold text-[#55555c]">Departments — allow</p>{departments.map((item) => <label key={"dept-a-"+item.id} className="mt-2 flex items-center gap-2 text-xs text-[#55555c]"><input type="checkbox" checked={departmentAllowIds.includes(item.id)} onChange={(event) => setDepartmentAllowIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />{item.name}</label>)}</div>
+                  <div><p className="text-xs font-semibold text-[#55555c]">Departments — deny</p>{departments.map((item) => <label key={"dept-d-"+item.id} className="mt-2 flex items-center gap-2 text-xs text-[#55555c]"><input type="checkbox" checked={departmentDenyIds.includes(item.id)} onChange={(event) => setDepartmentDenyIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />{item.name}</label>)}</div>
+                  <div><p className="text-xs font-semibold text-[#55555c]">Roles — allow</p>{accessRoles.map((item) => <label key={"role-a-"+item.id} className="mt-2 flex items-center gap-2 text-xs text-[#55555c]"><input type="checkbox" checked={roleAllowIds.includes(item.id)} onChange={(event) => setRoleAllowIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />{item.name}</label>)}</div>
+                  <div><p className="text-xs font-semibold text-[#55555c]">Roles — deny</p>{accessRoles.map((item) => <label key={"role-d-"+item.id} className="mt-2 flex items-center gap-2 text-xs text-[#55555c]"><input type="checkbox" checked={roleDenyIds.includes(item.id)} onChange={(event) => setRoleDenyIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />{item.name}</label>)}</div>
+                  <div><p className="text-xs font-semibold text-[#55555c]">Members — allow</p><div className="mt-2 max-h-32 space-y-2 overflow-y-auto">{accessMembers.map((item) => <label key={"user-a-"+item.user_id} className="flex items-center gap-2 text-xs text-[#55555c]"><input type="checkbox" checked={userAllowIds.includes(item.user_id)} onChange={(event) => setUserAllowIds((current) => event.target.checked ? [...current, item.user_id] : current.filter((id) => id !== item.user_id))} />{item.display_name || item.email || item.user_id}</label>)}</div></div>
+                  <div><p className="text-xs font-semibold text-[#55555c]">Members — deny</p><div className="mt-2 max-h-32 space-y-2 overflow-y-auto">{accessMembers.map((item) => <label key={"user-d-"+item.user_id} className="flex items-center gap-2 text-xs text-[#55555c]"><input type="checkbox" checked={userDenyIds.includes(item.user_id)} onChange={(event) => setUserDenyIds((current) => event.target.checked ? [...current, item.user_id] : current.filter((id) => id !== item.user_id))} />{item.display_name || item.email || item.user_id}</label>)}</div></div>
                 </div>
                 <button type="button" onClick={() => void saveAccessRules()} disabled={saving} className="sc-action-button mt-4 w-full">{saving ? "Saving…" : "Save access rules"}</button>
               </section>
@@ -540,30 +540,30 @@ export default function DocumentLibrary({
             <div className="mt-4 flex flex-wrap gap-2">
               {canManage && (
                 <>
-                  <button type="button" disabled={saving || selected.archived} onClick={addReplacementVersion} className="rounded-lg border border-cyan-300/25 bg-cyan-300/[0.07] px-3 py-2 text-[10px] font-semibold text-cyan-100 hover:bg-cyan-300/[0.12] disabled:opacity-40">Supersede with new version</button>
-                  <button type="button" disabled={saving} onClick={() => void setArchived(!selected.archived)} className="rounded-lg border border-white/10 px-3 py-2 text-[10px] text-slate-300 hover:bg-white/[0.05] disabled:opacity-40">{selected.archived ? "Restore document" : "Archive document"}</button>
-                  <button type="button" disabled={saving} onClick={() => setConfirmDelete(true)} className="rounded-lg border border-rose-300/20 px-3 py-2 text-[10px] text-rose-200 hover:bg-rose-300/[0.07] disabled:opacity-40">Delete permanently</button>
+                  <button type="button" disabled={saving || selected.archived} onClick={addReplacementVersion} className="rounded-lg border border-[#222] bg-[#222] px-3 py-2 text-[10px] font-semibold text-white hover:bg-[#3c3c3c] disabled:opacity-40">Supersede with new version</button>
+                  <button type="button" disabled={saving} onClick={() => void setArchived(!selected.archived)} className="rounded-lg border border-[#e5e5e7] px-3 py-2 text-[10px] text-[#55555c] hover:bg-[#f7f7f8] disabled:opacity-40">{selected.archived ? "Restore document" : "Archive document"}</button>
+                  <button type="button" disabled={saving} onClick={() => setConfirmDelete(true)} className="rounded-lg border border-[#e8d5d3] px-3 py-2 text-[10px] text-[#9f2920] hover:bg-[#fff7f6] disabled:opacity-40">Delete permanently</button>
                 </>
               )}
             </div>
 
-            <div className="mt-6 border-t border-white/[0.07] pt-5">
+            <div className="mt-6 border-t border-[#ededee] pt-5">
               <div className="flex items-center justify-between gap-3">
-                <div><p className="sc-kicker">REVISION HISTORY</p><h5 className="mt-1 text-sm font-semibold text-white">Summaries by version</h5></div>
+                <div><p className="sc-kicker">REVISION HISTORY</p><h5 className="mt-1 text-sm font-semibold text-[#202024]">Summaries by version</h5></div>
                 <span className="sc-count-chip">{selected.versions.length}</span>
               </div>
               {selected.versions.length ? (
                 <div className="mt-3 max-h-[520px] space-y-3 overflow-y-auto pr-1">
                   {selected.versions.map((version) => (
-                    <article key={version.id} className="rounded-xl border border-white/[0.08] bg-white/[0.025] p-3">
+                    <article key={version.id} className="rounded-xl border border-[#e8e8ea] bg-[#fafafa] p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <strong className="text-xs text-slate-100">Version {version.version_number}{version.version_label ? ` · ${version.version_label}` : ""}</strong>
+                        <strong className="text-xs text-[#222226]">Version {version.version_number}{version.version_label ? ` · ${version.version_label}` : ""}</strong>
                         <span className={`rounded-full border px-2 py-1 text-[9px] capitalize ${statusClass(version.status)}`}>{version.status}</span>
                       </div>
-                      <p className="mt-2 text-[10px] text-slate-500">{version.original_filename} · {version.page_count ?? "—"} pages · {formatDate(version.created_at)}</p>
+                      <p className="mt-2 text-[10px] text-[#77777f]">{version.original_filename} · {version.page_count ?? "—"} pages · {formatDate(version.created_at)}</p>
                       {canManage ? (
                         <div className="mt-3">
-                          <label className="block text-[10px] font-medium text-slate-500">Version summary
+                          <label className="block text-[10px] font-medium text-[#77777f]">Version summary
                             <textarea
                               rows={5}
                               maxLength={20000}
@@ -582,27 +582,27 @@ export default function DocumentLibrary({
                           </button>
                         </div>
                       ) : (
-                        <p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-slate-300">{version.summary || "No summary is available for this version."}</p>
+                        <p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-[#55555c]">{version.summary || "No summary is available for this version."}</p>
                       )}
-                      {version.effective_from && <p className="mt-2 text-[10px] text-slate-500">Effective from {formatDate(version.effective_from)}</p>}
+                      {version.effective_from && <p className="mt-2 text-[10px] text-[#77777f]">Effective from {formatDate(version.effective_from)}</p>}
                     </article>
                   ))}
                 </div>
-              ) : <p className="mt-3 text-xs text-slate-500">No versions have been registered for this document.</p>}
+              ) : <p className="mt-3 text-xs text-[#77777f]">No versions have been registered for this document.</p>}
             </div>
           </aside>
         )}
       </div>
 
       {confirmDelete && selected && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
-          <section role="alertdialog" aria-modal="true" aria-labelledby="delete-document-title" aria-describedby="delete-document-description" className="w-full max-w-md rounded-2xl border border-rose-300/20 bg-[#0b1724] p-5 shadow-2xl">
-            <p className="sc-kicker text-rose-200">PERMANENT ACTION</p>
-            <h4 id="delete-document-title" className="mt-2 text-lg font-semibold text-white">Delete “{selected.title}”?</h4>
-            <p id="delete-document-description" className="mt-2 text-sm leading-6 text-slate-400">This permanently removes every version, its source PDFs, document summaries, Qdrant chunks and BM25 search entries. This cannot be undone.</p>
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <section role="alertdialog" aria-modal="true" aria-labelledby="delete-document-title" aria-describedby="delete-document-description" className="w-full max-w-md rounded-2xl border border-[#e8d5d3] bg-white p-5 shadow-2xl">
+            <p className="sc-kicker text-[#9f2920]">PERMANENT ACTION</p>
+            <h4 id="delete-document-title" className="mt-2 text-lg font-semibold text-[#202024]">Delete “{selected.title}”?</h4>
+            <p id="delete-document-description" className="mt-2 text-sm leading-6 text-[#66666e]">This permanently removes every version, its source PDFs, document summaries, Qdrant chunks and BM25 search entries. This cannot be undone.</p>
             <div className="mt-5 flex justify-end gap-2">
-              <button type="button" disabled={saving} onClick={() => setConfirmDelete(false)} className="rounded-lg border border-white/10 px-4 py-2 text-xs text-slate-300 hover:bg-white/[0.05]">Cancel</button>
-              <button type="button" disabled={saving} onClick={() => void permanentlyDelete()} className="rounded-lg bg-rose-400 px-4 py-2 text-xs font-semibold text-slate-950 disabled:opacity-40">{saving ? "Deleting…" : "Delete permanently"}</button>
+              <button type="button" disabled={saving} onClick={() => setConfirmDelete(false)} className="rounded-lg border border-[#e5e5e7] px-4 py-2 text-xs text-[#55555c] hover:bg-[#f7f7f8]">Cancel</button>
+              <button type="button" disabled={saving} onClick={() => void permanentlyDelete()} className="rounded-lg bg-[#222] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40">{saving ? "Deleting…" : "Delete permanently"}</button>
             </div>
           </section>
         </div>

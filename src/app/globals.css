@@ -670,3 +670,33 @@ body { font-feature-settings: "ss01" on, "cv11" on; }
 .sc-register .sc-auth-side .sc-register-card [role="alert"]{border-color:#f0c7c3!important;background:#fff7f6!important;color:#9f2920!important}
 @media(max-width:900px){.sc-login,.sc-register.sc-login{display:flex!important;flex-direction:column!important;min-height:100svh!important}.sc-login>.sc-stage{min-height:auto!important;padding:26px 28px 30px!important}.sc-login>.sc-auth-side{min-height:auto!important;padding:26px 24px 32px!important}.sc-login>.sc-auth-side>div{flex:initial!important;margin:0 auto!important}.sc-login .sc-display{font-size:clamp(2.6rem,7vw,3.8rem)!important}.sc-auth-benefits{margin-top:26px!important}}
 @media(max-width:520px){.sc-login>.sc-stage{padding:22px 20px 26px!important}.sc-login>.sc-auth-side{padding:18px 14px 28px!important}.sc-login>.sc-auth-side>div{padding:22px 18px!important}.sc-auth-benefits{font-size:10px}}
+
+/* SaviraCortex dashboard refinement: deliberate hierarchy and balanced team workspace */
+.sc-dashboard { background:#f5f5f6 !important; color:#171717 !important; }
+.sc-topbar { min-height:64px !important; }
+.sc-dashboard h1 { font-size:clamp(28px,3vw,34px) !important; line-height:1.15 !important; font-weight:700 !important; letter-spacing:-.035em !important; }
+.sc-dashboard .sc-workspace-head h2 { font-size:28px !important; line-height:1.2 !important; font-weight:700 !important; }
+.sc-kicker { font-size:10px !important; letter-spacing:.1em !important; font-weight:700 !important; color:#737373 !important; }
+.sc-workspace { border:1px solid #e5e5e7 !important; border-radius:14px !important; box-shadow:0 4px 18px rgba(0,0,0,.035) !important; }
+.sc-workspace-head { padding:24px 28px !important; }
+.sc-workspace-body { grid-template-columns:240px minmax(0,1fr) !important; }
+.sc-workspace-sidebar { padding:20px 14px !important; }
+.sc-side-link { min-height:58px !important; padding:10px 12px !important; }
+.sc-side-link.is-active { background:#ededee !important; border-color:#dedee1 !important; box-shadow:inset 3px 0 #171717 !important; }
+.sc-workspace-content { padding:28px !important; }
+.sc-welcome-banner { min-height:230px !important; padding:30px !important; background:#fff !important; border-color:#e5e5e7 !important; }
+.sc-detail-panel,.sc-form-panel { border:1px solid #e5e5e7 !important; border-radius:12px !important; background:#fff !important; padding:22px !important; box-shadow:0 2px 8px rgba(0,0,0,.02) !important; }
+.sc-action-button,.sc-primary-link { background:#171717 !important; color:#fff !important; border:1px solid #171717 !important; font-size:12px !important; font-weight:650 !important; padding:10px 15px !important; }
+.sc-action-button:hover,.sc-primary-link:hover { background:#383838 !important; color:#fff !important; }
+.sc-action-button:disabled { background:#ededee !important; color:#999 !important; border-color:#e5e5e7 !important; }
+.sc-dept-row { min-height:88px !important; padding:16px !important; border-color:#ededee !important; background:#fff !important; }
+.sc-dept-row.is-selected { background:#f5f5f6 !important; border-color:#c9c9cd !important; box-shadow:inset 3px 0 #171717 !important; }
+.sc-dept-symbol { width:42px !important; height:42px !important; background:#f0f0f1 !important; color:#333 !important; border-color:#e5e5e7 !important; }
+.sc-department-search { display:flex; align-items:center; gap:10px; min-height:44px; border:1px solid #e5e5e7; border-radius:9px; background:#fff; padding:0 12px; color:#737373; }
+.sc-department-search input { width:100%; min-width:0; border:0 !important; outline:0 !important; background:transparent !important; color:#171717 !important; font-size:13px !important; box-shadow:none !important; }
+.sc-department-search input::placeholder { color:#a0a0a6 !important; }
+.sc-metric { min-height:112px !important; padding:18px !important; }
+.sc-metric strong { font-size:30px !important; line-height:1.1 !important; }
+.sc-section-heading h3 { font-size:21px !important; letter-spacing:-.02em !important; }
+@media(max-width:900px){.sc-workspace-body{grid-template-columns:1fr !important}.sc-workspace-content{padding:20px !important}}
+@media(max-width:640px){.sc-workspace-head{padding:18px !important}.sc-workspace-content{padding:16px !important}.sc-welcome-banner{padding:20px !important}}

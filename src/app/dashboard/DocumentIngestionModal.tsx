@@ -22,7 +22,7 @@ export default function DocumentIngestionModal({
     <button
       type="button"
       onClick={openIngestion}
-      className="inline-flex items-center gap-2 rounded-xl bg-cyan-300 px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-950/20 transition hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+      className="inline-flex items-center gap-2 rounded-lg border border-white bg-white px-4 py-2.5 text-sm font-semibold text-[#202024] transition hover:-translate-y-0.5 hover:border-[#f0f0f0] hover:bg-[#f0f0f0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#777] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
     >
       <span aria-hidden="true" className="text-base">＋</span>
       Ingest documents
