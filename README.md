@@ -6,7 +6,7 @@ Next.js App Router frontend for SaviraCortex.
 
 1. Create a Firebase **Web app** in the same Firebase project used by the backend Admin SDK.
 2. In Firebase Console, enable the Authentication providers used by the app: **Email/Password**, **Google** and **Phone**.
-3. Copy `firebase-config.example.txt` to `.env.local` and fill in the web-app values from **Project settings → General → Your apps → Web app**.
+3. Copy `firebase-config.example.txt` to `.env.local` and fill in the web-app values from **Project settings â†’ General â†’ Your apps â†’ Web app**.
 4. Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` (or the intended backend URL).
 5. Start the backend and frontend in separate terminals. Restart Next.js after changing `.env.local`.
 
@@ -26,6 +26,8 @@ Open http://localhost:3000.
 | Route | Purpose |
 |---|---|
 | `/` | Public SaviraCortex homepage |
+| `/privacy` | Privacy Policy and browser-storage disclosures |
+| `/terms` | Terms of Service |
 | `/login` | Email/Password, Google and Phone sign-in |
 | `/register` | Firebase registration and organization onboarding |
 | `/signup` | Additional signup route |
