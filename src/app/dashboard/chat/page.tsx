@@ -39,9 +39,14 @@ type ChatMessage = {
   citations?: Citation[];
   warnings?: string[];
   missingInformation?: string[];
+  generationId?: string;
+  feedbackStatus?: "relevant" | "not_relevant";
+  feedbackSaving?: boolean;
+  feedbackError?: string;
 };
 
 type GenerationPayload = {
+  generation_id: string;
   query: string;
   answer: string;
   status: "answered" | "partial" | "insufficient_evidence";
@@ -230,6 +235,7 @@ export default function ChatWorkspacePage() {
           setMessages((current) => current.map((message) => message.id === assistantId ? {
             ...message,
             content: result.answer,
+            generationId: result.generation_id,
             status: result.status,
             citations: result.citations || [],
             warnings: result.warnings || [],
@@ -259,6 +265,56 @@ export default function ChatWorkspacePage() {
       abortController.current = null;
       setSending(false);
       setStreamingStage("");
+    }
+  }
+
+  async function submitFeedback(
+    messageId: string,
+    generationId: string,
+    feedbackStatus: "relevant" | "not_relevant",
+  ) {
+    const currentUser = auth?.currentUser;
+    if (!currentUser || !selectedOrganizationId) return;
+
+    setMessages((current) => current.map((message) =>
+      message.id === messageId
+        ? { ...message, feedbackSaving: true, feedbackError: "" }
+        : message,
+    ));
+
+    try {
+      const token = await currentUser.getIdToken();
+      const response = await fetch(
+        API + "/api/v1/organizations/" + selectedOrganizationId + "/generation/" + generationId + "/feedback",
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: "Bearer " + token,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ feedback_status: feedbackStatus }),
+          cache: "no-store",
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || "Feedback could not be saved (HTTP " + response.status + ").");
+      }
+      setMessages((current) => current.map((message) =>
+        message.id === messageId
+          ? { ...message, feedbackStatus, feedbackSaving: false, feedbackError: "" }
+          : message,
+      ));
+    } catch (err) {
+      setMessages((current) => current.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              feedbackSaving: false,
+              feedbackError: (err as Error).message || "Feedback could not be saved.",
+            }
+          : message,
+      ));
     }
   }
 
@@ -444,6 +500,41 @@ export default function ChatWorkspacePage() {
                       </ul>
                     )}
                   </div>
+                  {message.role === "assistant" && message.generationId && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2 px-1 text-xs">
+                      <span className="mr-1 text-slate-500">Was this answer relevant?</span>
+                      <button
+                        type="button"
+                        onClick={() => void submitFeedback(message.id, message.generationId!, "relevant")}
+                        disabled={message.feedbackSaving}
+                        aria-label="Mark answer as relevant"
+                        aria-pressed={message.feedbackStatus === "relevant"}
+                        className={"rounded-lg border px-3 py-1.5 transition disabled:opacity-50 " + (
+                          message.feedbackStatus === "relevant"
+                            ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-200"
+                            : "border-white/10 text-slate-400 hover:border-emerald-300/30 hover:text-emerald-200"
+                        )}
+                      >
+                        &#128077; Relevant
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void submitFeedback(message.id, message.generationId!, "not_relevant")}
+                        disabled={message.feedbackSaving}
+                        aria-label="Mark answer as not relevant"
+                        aria-pressed={message.feedbackStatus === "not_relevant"}
+                        className={"rounded-lg border px-3 py-1.5 transition disabled:opacity-50 " + (
+                          message.feedbackStatus === "not_relevant"
+                            ? "border-rose-300/40 bg-rose-300/10 text-rose-200"
+                            : "border-white/10 text-slate-400 hover:border-rose-300/30 hover:text-rose-200"
+                        )}
+                      >
+                        &#128078; Not relevant
+                      </button>
+                      {message.feedbackSaving && <span className="text-slate-500">Saving...</span>}
+                      {message.feedbackError && <span role="alert" className="text-rose-300">{message.feedbackError}</span>}
+                    </div>
+                  )}
                 </article>
               ))}
 
