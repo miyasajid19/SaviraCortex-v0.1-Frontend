@@ -83,6 +83,7 @@ export default function ChatWorkspacePage() {
   const router = useRouter();
   const scrollAnchor = useRef<HTMLDivElement>(null);
   const abortController = useRef<AbortController | null>(null);
+  const pdfRequestId = useRef(0);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -91,6 +92,9 @@ export default function ChatWorkspacePage() {
   const [sending, setSending] = useState(false);
   const [streamingStage, setStreamingStage] = useState("");
   const [error, setError] = useState(firebaseConfigError);
+  const [pdfViewer, setPdfViewer] = useState<{ url: string; title: string; page: number | null } | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfLoadingTitle, setPdfLoadingTitle] = useState("Source document");
 
   useEffect(() => {
     if (!auth) return;
@@ -143,6 +147,24 @@ export default function ChatWorkspacePage() {
   }, [router]);
 
   useEffect(() => () => abortController.current?.abort(), []);
+
+  useEffect(() => {
+    if (!pdfViewer) return;
+    return () => URL.revokeObjectURL(pdfViewer.url);
+  }, [pdfViewer]);
+
+  useEffect(() => {
+    if (!pdfViewer && !pdfLoading) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        pdfRequestId.current += 1;
+        setPdfViewer(null);
+        setPdfLoading(false);
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [pdfViewer, pdfLoading]);
 
   useEffect(() => {
     scrollAnchor.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -266,6 +288,59 @@ export default function ChatWorkspacePage() {
       setSending(false);
       setStreamingStage("");
     }
+  }
+
+  async function openCitation(citation: Citation) {
+    const currentUser = auth?.currentUser;
+    if (!currentUser || !selectedOrganizationId || !citation.document_version_id) {
+      setError("This reference does not have an available source document.");
+      return;
+    }
+
+    const requestId = ++pdfRequestId.current;
+    setPdfViewer(null);
+    setPdfLoadingTitle(citation.document_title || "Source document");
+    setPdfLoading(true);
+    setError("");
+    try {
+      const token = await currentUser.getIdToken();
+      const response = await fetch(
+        API + "/api/v1/organizations/" + selectedOrganizationId + "/generation/citations/" + citation.document_version_id + "/content",
+        { headers: { Authorization: "Bearer " + token }, cache: "no-store" },
+      );
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail || "The source document could not be opened.");
+      }
+      const pdf = await response.blob();
+      if (pdf.type && !pdf.type.toLowerCase().includes("pdf")) {
+        throw new Error("The source document response was not a PDF.");
+      }
+      const pageNumber = Number(citation.page);
+      const page = Number.isInteger(pageNumber) && pageNumber > 0 ? pageNumber : null;
+      const objectUrl = URL.createObjectURL(pdf);
+      if (requestId === pdfRequestId.current) {
+        setPdfViewer({
+          url: objectUrl,
+          title: citation.document_title || "Source document",
+          page,
+        });
+      } else {
+        URL.revokeObjectURL(objectUrl);
+      }
+    } catch (err) {
+      if (requestId === pdfRequestId.current) {
+        setError((err as Error).message || "The source document could not be opened.");
+      }
+    } finally {
+      if (requestId === pdfRequestId.current) setPdfLoading(false);
+    }
+  }
+
+  function closePdfViewer() {
+    pdfRequestId.current += 1;
+    setPdfViewer(null);
+    setPdfLoading(false);
   }
 
   async function submitFeedback(
@@ -472,7 +547,22 @@ export default function ChatWorkspacePage() {
                           li: ({ children }) => <li className="pl-1 leading-7">{children}</li>,
                           strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
                           blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-cyan-300/50 pl-4 text-slate-400">{children}</blockquote>,
-                          a: ({ href, children }) => <a href={href} className="font-semibold text-cyan-200 underline decoration-cyan-200/30 underline-offset-4 hover:text-cyan-100">{children}</a>,
+                          a: ({ href, children }) => {
+                            const citationNumber = href === "#references" ? Number(String(children).trim()) : 0;
+                            const citation = citationNumber > 0
+                              ? message.citations?.find((item) => item.evidence_id === "E" + citationNumber)
+                              : undefined;
+                            if (citation) {
+                              return (
+                                <span className="mx-0.5 inline-flex whitespace-nowrap" key={citation.evidence_id}>
+                                  <span aria-hidden="true">[</span>
+                                  <button type="button" onClick={() => void openCitation(citation)} aria-label={"Open source " + citationNumber} title={"Open " + (citation.document_title || "source document") + (citation.page ? ", page " + citation.page : "")} className="font-semibold text-cyan-200 underline decoration-cyan-200/30 underline-offset-4 hover:text-cyan-100">{children}</button>
+                                  <span aria-hidden="true">]</span>
+                                </span>
+                              );
+                            }
+                            return <a href={href} className="font-semibold text-cyan-200 underline decoration-cyan-200/30 underline-offset-4 hover:text-cyan-100">{children}</a>;
+                          },
                           table: ({ children }) => <div className="my-4 overflow-x-auto"><table className="w-full border-collapse text-left text-xs">{children}</table></div>,
                           th: ({ children }) => <th className="border border-white/10 bg-white/[0.04] px-3 py-2 font-semibold text-white">{children}</th>,
                           td: ({ children }) => <td className="border border-white/10 px-3 py-2 align-top">{children}</td>,
@@ -591,6 +681,48 @@ export default function ChatWorkspacePage() {
           </>
         )}
       </section>
+      {(pdfViewer || pdfLoading) && (
+        <div
+          className="fixed inset-0 z-50 flex justify-end bg-black/70 p-2 backdrop-blur-sm sm:p-5"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closePdfViewer();
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="PDF source viewer"
+            className="flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#081522] shadow-2xl shadow-black/50"
+          >
+            <header className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 px-4 py-3 sm:px-5">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300">Source document</p>
+                <h2 className="truncate text-sm font-semibold text-white">{pdfViewer?.title || pdfLoadingTitle}</h2>
+                {pdfViewer?.page && <p className="text-[11px] text-slate-400">Opened at page {pdfViewer.page}</p>}
+              </div>
+              <button
+                type="button"
+                onClick={closePdfViewer}
+                aria-label="Close PDF viewer"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 text-lg text-slate-300 transition hover:border-white/25 hover:bg-white/[0.06] hover:text-white"
+              >
+                ×
+              </button>
+            </header>
+            {pdfLoading ? (
+              <div className="flex flex-1 items-center justify-center text-sm text-slate-300" role="status">Loading PDF…</div>
+            ) : pdfViewer ? (
+              <iframe
+                key={pdfViewer.url}
+                title={pdfViewer.title}
+                src={pdfViewer.url + (pdfViewer.page ? "#page=" + pdfViewer.page : "")}
+                className="min-h-0 w-full flex-1 bg-white"
+              />
+            ) : null}
+          </section>
+        </div>
+      )}
     </main>
   );
 }
