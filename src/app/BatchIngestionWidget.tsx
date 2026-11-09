@@ -5,6 +5,8 @@ import { auth } from "./firebase";
 
 type Organization = { organization_id: string; organization_name: string };
 type Department = { id: string; name: string };
+type AccessRole = { id: string; name: string };
+type AccessMember = { user_id: string; email: string | null; display_name: string | null };
 type OpenDetail = { organization: Organization; uploaderId: string; departments: Department[]; targetDocumentId?: string; targetDocumentTitle?: string };
 type Analysis = {
   status: "ready_for_review" | "duplicate";
@@ -63,10 +65,20 @@ export default function BatchIngestionWidget() {
   const [title, setTitle] = useState("");
   const [documentType, setDocumentType] = useState("General document");
   const [description, setDescription] = useState("");
-  const [departmentId, setDepartmentId] = useState("");
   const [targetDocumentId, setTargetDocumentId] = useState("");
   const [archived, setArchived] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [step, setStep] = useState<1 | 2>(1);
+  const [roles, setRoles] = useState<AccessRole[]>([]);
+  const [members, setMembers] = useState<AccessMember[]>([]);
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
+  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  const [deniedDepartments, setDeniedDepartments] = useState<string[]>([]);
+  const [deniedRoles, setDeniedRoles] = useState<string[]>([]);
+  const [deniedMembers, setDeniedMembers] = useState<string[]>([]);
+  const [organizationWideAccess, setOrganizationWideAccess] = useState(true);
+  const [accessLoading, setAccessLoading] = useState(false);
 
   useEffect(() => {
     const onOpen = (event: Event) => {
@@ -74,11 +86,51 @@ export default function BatchIngestionWidget() {
       if (!detail?.organization?.organization_id) return;
       setContext(detail);
       setIsOpen(true);
+      setStep(1);
+      setFiles([]);
+      setItems([]);
+      setSelectedDepartments([]);
+      setSelectedRoles([]);
+      setSelectedMembers([]);
+      setDeniedDepartments([]);
+      setDeniedRoles([]);
+      setDeniedMembers([]);
+      setOrganizationWideAccess(true);
       setError("");
     };
     window.addEventListener("savira:open-ingestion", onOpen);
     return () => window.removeEventListener("savira:open-ingestion", onOpen);
   }, []);
+
+  useEffect(() => {
+    if (!context) return;
+    let cancelled = false;
+    const loadAccessOptions = async () => {
+      setAccessLoading(true);
+      try {
+        let bearer = await token();
+        const request = async (url: string) => {
+          let response = await fetch(url, { headers: { Authorization: `Bearer ${bearer}` }, cache: "no-store" });
+          if (response.status === 401) {
+            bearer = await token(true);
+            response = await fetch(url, { headers: { Authorization: `Bearer ${bearer}` }, cache: "no-store" });
+          }
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(messageFrom(data, "Could not load access options."));
+          return data;
+        };
+        const [roleData, memberData] = await Promise.all([
+          request(`${API}/api/v1/organizations/${context.organization.organization_id}/roles`),
+          request(`${API}/api/v1/organizations/${context.organization.organization_id}/members`),
+        ]);
+        if (!cancelled) { setRoles(roleData); setMembers(memberData); }
+      } catch (cause) {
+        if (!cancelled) setError((cause as Error).message || "Could not load access options.");
+      } finally { if (!cancelled) setAccessLoading(false); }
+    };
+    void loadAccessOptions();
+    return () => { cancelled = true; };
+  }, [context]);
 
   const selectedItem = useMemo(() => items.find((item) => item.item_id === selectedId) ?? null, [items, selectedId]);
   const completedCount = items.filter((item) => ["duplicate", "indexed", "rejected"].includes(item.status)).length;
@@ -122,6 +174,7 @@ export default function BatchIngestionWidget() {
   async function startBatch() {
     if (!context || !files.length || isRunning) return;
     setError("");
+    setStep(2);
     setItems(files.map((file, index) => ({ item_id: index, filename: file.name, status: "queued" })));
     setBatchTotal(files.length);
     setIsRunning(true);
@@ -133,6 +186,13 @@ export default function BatchIngestionWidget() {
       const send = async (bearer: string) => {
         const form = new FormData();
         files.forEach((file) => form.append("files", file));
+        selectedDepartments.forEach((id) => form.append("department_ids", id));
+        selectedRoles.forEach((id) => form.append("access_role_ids", id));
+        selectedMembers.forEach((id) => form.append("access_user_ids", id));
+        deniedDepartments.forEach((id) => form.append("deny_department_ids", id));
+        deniedRoles.forEach((id) => form.append("deny_role_ids", id));
+        deniedMembers.forEach((id) => form.append("deny_user_ids", id));
+        form.append("organization_wide_access", String(organizationWideAccess));
         return fetch(`${API}/api/v1/organizations/${context.organization.organization_id}/documents/ingestion-batches/stream`, {
           method: "POST",
           headers: { Authorization: `Bearer ${bearer}` },
@@ -203,7 +263,6 @@ export default function BatchIngestionWidget() {
     setTitle(item.analysis.title || item.filename.replace(/\.pdf$/i, ""));
     setDocumentType(item.analysis.document_type || "General document");
     setDescription(item.analysis.description || item.analysis.summary || "");
-    setDepartmentId("");
     setTargetDocumentId(context?.targetDocumentId || item.analysis.matching_candidates[0]?.document_id || "");
     setArchived(false);
     setError("");
@@ -229,7 +288,6 @@ export default function BatchIngestionWidget() {
             title: title.trim() || selectedItem.filename,
             document_type: documentType.trim() || "General document",
             description: description.trim() || "Rejected during batch review.",
-            department_id: departmentId || null,
             archived: action === "new" || action === "independent" ? archived : false,
             ...(action === "supersede" ? { target_document_id: targetDocumentId } : {}),
           }),
@@ -282,14 +340,41 @@ export default function BatchIngestionWidget() {
             </header>
 
             <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-7">
-              {!hasBatch && (
+              {!hasBatch && step === 1 && (
+                <section className="space-y-4">
+                  <div className="grid grid-cols-2 gap-2 text-xs"><div className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 p-3 text-cyan-100"><b>STEP 01</b><span className="mt-1 block">Access & departments</span></div><div className="rounded-lg border border-slate-700 bg-slate-950/40 p-3 text-slate-500"><b>STEP 02</b><span className="mt-1 block">Upload & process</span></div></div>
+                  <section className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                    <h3 className="text-sm font-semibold">Who can access these documents?</h3>
+                    <label className="mt-3 flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={organizationWideAccess} onChange={(event) => setOrganizationWideAccess(event.target.checked)} /> All current and future organization members</label>
+                    {accessLoading ? <p className="mt-3 text-xs text-slate-500">Loading access options…</p> : <>
+                      <p className="mt-4 text-xs font-semibold text-slate-300">Departments — allow</p>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">{context.departments.map((department) => <label key={"allow-"+department.id} className="flex items-center gap-2 rounded-lg border border-slate-800 p-2 text-xs text-slate-300"><input type="checkbox" checked={selectedDepartments.includes(department.id)} onChange={(event) => setSelectedDepartments((current) => event.target.checked ? [...current, department.id] : current.filter((id) => id !== department.id))} />{department.name}</label>)}</div>
+                      <p className="mt-3 text-xs font-semibold text-rose-300">Departments — explicitly deny</p>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">{context.departments.map((department) => <label key={"deny-"+department.id} className="flex items-center gap-2 rounded-lg border border-rose-900/50 p-2 text-xs text-slate-300"><input type="checkbox" checked={deniedDepartments.includes(department.id)} onChange={(event) => setDeniedDepartments((current) => event.target.checked ? [...current, department.id] : current.filter((id) => id !== department.id))} />{department.name}</label>)}</div>
+                      <p className="mt-4 text-xs font-semibold text-slate-300">Roles — allow</p>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">{roles.map((role) => <label key={"allow-"+role.id} className="flex items-center gap-2 rounded-lg border border-slate-800 p-2 text-xs text-slate-300"><input type="checkbox" checked={selectedRoles.includes(role.id)} onChange={(event) => setSelectedRoles((current) => event.target.checked ? [...current, role.id] : current.filter((id) => id !== role.id))} />{role.name}</label>)}</div>
+                      <p className="mt-3 text-xs font-semibold text-rose-300">Roles — explicitly deny</p>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">{roles.map((role) => <label key={"deny-"+role.id} className="flex items-center gap-2 rounded-lg border border-rose-900/50 p-2 text-xs text-slate-300"><input type="checkbox" checked={deniedRoles.includes(role.id)} onChange={(event) => setDeniedRoles((current) => event.target.checked ? [...current, role.id] : current.filter((id) => id !== role.id))} />{role.name}</label>)}</div>
+                      <p className="mt-4 text-xs font-semibold text-slate-300">Specific people — allow</p>
+                      <div className="mt-2 max-h-36 space-y-2 overflow-y-auto">{members.map((member) => <label key={"allow-"+member.user_id} className="flex items-center gap-2 rounded-lg border border-slate-800 p-2 text-xs text-slate-300"><input type="checkbox" checked={selectedMembers.includes(member.user_id)} onChange={(event) => setSelectedMembers((current) => event.target.checked ? [...current, member.user_id] : current.filter((id) => id !== member.user_id))} /><span>{member.display_name || member.email || member.user_id}</span><span className="ml-auto text-[10px] text-slate-500">{member.email || ""}</span></label>)}</div>
+                      <p className="mt-3 text-xs font-semibold text-rose-300">Specific people — explicitly deny</p>
+                      <div className="mt-2 max-h-36 space-y-2 overflow-y-auto">{members.map((member) => <label key={"deny-"+member.user_id} className="flex items-center gap-2 rounded-lg border border-rose-900/50 p-2 text-xs text-slate-300"><input type="checkbox" checked={deniedMembers.includes(member.user_id)} onChange={(event) => setDeniedMembers((current) => event.target.checked ? [...current, member.user_id] : current.filter((id) => id !== member.user_id))} /><span>{member.display_name || member.email || member.user_id}</span><span className="ml-auto text-[10px] text-slate-500">{member.email || ""}</span></label>)}</div>
+                    </>}
+                  </section>
+                  <button type="button" onClick={() => setStep(2)} disabled={accessLoading} className="w-full rounded-xl bg-cyan-300 px-4 py-3 text-sm font-semibold text-slate-950 disabled:opacity-40">Continue to upload</button>
+                </section>
+              )}
+
+              {!hasBatch && step === 2 && (
                 <section>
+                  <div className="grid grid-cols-2 gap-2 text-xs"><button type="button" onClick={() => setStep(1)} className="rounded-lg border border-emerald-300/30 bg-emerald-300/10 p-3 text-left text-emerald-100"><b>STEP 01</b><span className="mt-1 block">Access & departments ✓</span></button><div className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 p-3 text-cyan-100"><b>STEP 02</b><span className="mt-1 block">Upload & process</span></div></div>
+                  <p className="mb-3 text-xs text-slate-400">Access: {organizationWideAccess ? "All organization members" : "Explicit grants"} · {selectedDepartments.length} department grants · {selectedRoles.length} role grants · {selectedMembers.length} user grants · {deniedDepartments.length} department denies · {deniedRoles.length} role denies · {deniedMembers.length} user denies</p>
                   <label htmlFor="batch-pdf-files" className="block rounded-2xl border border-dashed border-slate-600 bg-slate-950/40 p-8 text-center hover:border-cyan-400/70">
                     <span className="text-3xl text-cyan-200">↥</span><span className="mt-3 block text-sm font-semibold">Choose multiple PDF documents</span><span className="mt-1 block text-xs text-slate-400">Up to {MAX_FILES} files · 25 MB per file</span>
                     <input id="batch-pdf-files" type="file" accept=".pdf,application/pdf" multiple onChange={chooseFiles} className="sr-only" />
                   </label>
                   {files.length > 0 && <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3"><div className="mb-2 flex justify-between text-xs"><span>{files.length} documents selected</span><span className="text-slate-400">{formatBytes(files.reduce((sum, file) => sum + file.size, 0))}</span></div><ul className="max-h-40 space-y-1 overflow-y-auto">{files.map((file) => <li key={file.name + file.size} className="flex justify-between gap-3 text-xs text-slate-300"><span className="truncate">{file.name}</span><span className="shrink-0 text-slate-500">{formatBytes(file.size)}</span></li>)}</ul></div>}
-                  <button type="button" onClick={() => void startBatch()} disabled={!files.length || isRunning} className="mt-4 w-full rounded-xl bg-cyan-300 px-4 py-3 text-sm font-semibold text-slate-950 disabled:opacity-40">Start batch ingestion · {files.length} files</button>
+                  <div className="mt-4 flex gap-2"><button type="button" onClick={() => setStep(1)} className="rounded-xl border border-slate-700 px-4 py-3 text-xs text-slate-300">Back</button><button type="button" onClick={() => void startBatch()} disabled={!files.length || isRunning} className="flex-1 rounded-xl bg-cyan-300 px-4 py-3 text-sm font-semibold text-slate-950 disabled:opacity-40">Start batch ingestion · {files.length} files</button></div>
                 </section>
               )}
 
@@ -303,8 +388,10 @@ export default function BatchIngestionWidget() {
 
                   {selectedItem ? (
                     <section className="space-y-3 rounded-xl border border-cyan-400/20 bg-cyan-950/10 p-4">
+                      <div className="rounded-lg border border-cyan-300/30 bg-cyan-300/10 p-3 text-xs text-cyan-100"><b>STEP 03 · REVIEW</b><span className="mt-1 block">Verify the summary, hashes, metadata and duplicate matches before deciding.</span></div>
                       <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold text-cyan-100">Review document</p><p className="mt-1 truncate text-xs text-slate-400">{selectedItem.filename}</p></div><button type="button" onClick={() => setSelectedId(null)} className="text-xs text-slate-400 hover:text-white">Back to batch</button></div>
-                      <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs text-slate-300">Title<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={255} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" /></label><label className="text-xs text-slate-300">Document type<input value={documentType} onChange={(event) => setDocumentType(event.target.value)} maxLength={100} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" /></label><label className="text-xs text-slate-300 sm:col-span-2">Description<textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} maxLength={10000} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" /></label><label className="text-xs text-slate-300">Department<select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"><option value="">No department</option>{context.departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label><label className="flex items-center gap-2 self-end pb-2 text-xs text-slate-300"><input type="checkbox" checked={archived} onChange={(event) => setArchived(event.target.checked)} /> Archived</label></div>
+                      <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs text-slate-300">Title<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={255} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" /></label><label className="text-xs text-slate-300">Document type<input value={documentType} onChange={(event) => setDocumentType(event.target.value)} maxLength={100} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" /></label><label className="text-xs text-slate-300 sm:col-span-2">Description<textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} maxLength={10000} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" /></label><label className="flex items-center gap-2 self-end pb-2 text-xs text-slate-300"><input type="checkbox" checked={archived} onChange={(event) => setArchived(event.target.checked)} /> Archived</label></div>
+                      <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-[10px] text-slate-400"><p><b className="text-slate-300">SHA-256 file hash:</b> <span className="break-all font-mono">{selectedItem.analysis?.file_hash}</span></p><p className="mt-2"><b className="text-slate-300">Content hash:</b> <span className="break-all font-mono">{selectedItem.analysis?.content_hash}</span></p><p className="mt-2"><b className="text-slate-300">Pages:</b> {selectedItem.analysis?.page_count} · <b className="text-slate-300">Duplicate check:</b> {selectedItem.analysis?.matching_classification?.replace(/_/g, " ")}</p></div>
                       {selectedItem.analysis?.summary && <p className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-950/70 p-3 text-xs leading-5 text-slate-300">{selectedItem.analysis.summary}</p>}
                       {(context?.targetDocumentId || selectedItem.analysis?.matching_classification !== "no_match") && <label className="block text-xs text-amber-100">Matching document<select value={targetDocumentId} onChange={(event) => setTargetDocumentId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"><option value="">Choose a document to supersede</option>{context?.targetDocumentId && !selectedItem.analysis?.matching_candidates.some((candidate) => candidate.document_id === context.targetDocumentId) && <option value={context.targetDocumentId}>{context.targetDocumentTitle || "Selected document"}</option>}{(selectedItem.analysis?.matching_candidates || []).map((candidate) => <option key={candidate.document_id} value={candidate.document_id}>{candidate.title || "Untitled document"} · v{candidate.version_number}</option>)}</select><span className="mt-1 block text-[10px] text-slate-500">You can supersede the selected version or ingest this as an independent document.</span></label>}
                       {error && <p role="alert" className="text-xs text-rose-200">{error}</p>}
@@ -320,7 +407,7 @@ export default function BatchIngestionWidget() {
                       </div>)}
                     </section>
                   )}
-                  {!isRunning && !selectedItem && <button type="button" onClick={() => { setItems([]); setFiles([]); setBatchTotal(0); setError(""); }} className="w-full rounded-xl border border-slate-700 px-4 py-2.5 text-xs text-slate-200 hover:bg-slate-800">Start another batch</button>}
+                  {!isRunning && !selectedItem && <button type="button" onClick={() => { setItems([]); setFiles([]); setBatchTotal(0); setSelectedId(null); setStep(1); setSelectedDepartments([]); setSelectedRoles([]); setSelectedMembers([]); setDeniedDepartments([]); setDeniedRoles([]); setDeniedMembers([]); setOrganizationWideAccess(true); setError(""); }} className="w-full rounded-xl border border-slate-700 px-4 py-2.5 text-xs text-slate-200 hover:bg-slate-800">Start another batch</button>}
                 </>
               )}
               {error && !selectedItem && <p role="alert" className="rounded-lg border border-rose-400/20 bg-rose-400/5 px-3 py-2.5 text-xs text-rose-200">{error}</p>}

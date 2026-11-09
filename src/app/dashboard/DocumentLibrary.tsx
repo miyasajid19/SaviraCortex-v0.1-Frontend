@@ -5,6 +5,8 @@ import { auth } from "../firebase";
 
 type Organization = { organization_id: string; organization_name: string };
 type Department = { id: string; name: string };
+type AccessRole = { id: string; name: string };
+type AccessMember = { user_id: string; email: string | null; display_name: string | null };
 type Version = {
   id: string;
   version_number: number;
@@ -23,8 +25,15 @@ type DocumentRecord = {
   title: string;
   document_type: string;
   description: string | null;
-  department_id: string | null;
-  department_name: string | null;
+  department_name?: string | null;
+  department_ids: string[];
+  department_tags: string[];
+  department_deny_ids: string[];
+  role_allow_ids: string[];
+  role_deny_ids: string[];
+  user_allow_ids: string[];
+  user_deny_ids: string[];
+  organization_wide_access: boolean;
   archived: boolean;
   created_at: string;
   active_version_id: string | null;
@@ -89,11 +98,44 @@ export default function DocumentLibrary({
   const [draftTitle, setDraftTitle] = useState("");
   const [draftType, setDraftType] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
-  const [draftDepartment, setDraftDepartment] = useState("");
   const [summaryDrafts, setSummaryDrafts] = useState<Record<string, string>>({});
   const [savingVersionId, setSavingVersionId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [accessRoles, setAccessRoles] = useState<AccessRole[]>([]);
+  const [accessMembers, setAccessMembers] = useState<AccessMember[]>([]);
+  const [departmentAllowIds, setDepartmentAllowIds] = useState<string[]>([]);
+  const [departmentDenyIds, setDepartmentDenyIds] = useState<string[]>([]);
+  const [roleAllowIds, setRoleAllowIds] = useState<string[]>([]);
+  const [roleDenyIds, setRoleDenyIds] = useState<string[]>([]);
+  const [userAllowIds, setUserAllowIds] = useState<string[]>([]);
+  const [userDenyIds, setUserDenyIds] = useState<string[]>([]);
+  const [organizationWideAccess, setOrganizationWideAccess] = useState(false);
+
+  useEffect(() => {
+    if (!canManage) return;
+    let cancelled = false;
+    async function loadAccessOptions() {
+      try {
+        const bearer = auth?.currentUser ? await auth.currentUser.getIdToken() : token;
+        const headers = { Authorization: "Bearer " + bearer };
+        const [roleResponse, memberResponse] = await Promise.all([
+          fetch(API + "/api/v1/organizations/" + organization.organization_id + "/roles", { headers, cache: "no-store" }),
+          fetch(API + "/api/v1/organizations/" + organization.organization_id + "/members", { headers, cache: "no-store" }),
+        ]);
+        if (!roleResponse.ok || !memberResponse.ok) throw new Error("Could not load access options.");
+        const [roleData, memberData] = await Promise.all([roleResponse.json(), memberResponse.json()]);
+        if (!cancelled) {
+          setAccessRoles(roleData);
+          setAccessMembers(memberData);
+        }
+      } catch (cause) {
+        if (!cancelled) setError((cause as Error).message || "Could not load access options.");
+      }
+    }
+    void loadAccessOptions();
+    return () => { cancelled = true; };
+  }, [organization.organization_id, token, canManage]);
 
   useEffect(() => {
     const onDocumentsChanged = (event: Event) => {
@@ -173,7 +215,13 @@ export default function DocumentLibrary({
     setDraftTitle(document.title);
     setDraftType(document.document_type);
     setDraftDescription(document.description || "");
-    setDraftDepartment(document.department_id || "");
+    setDepartmentAllowIds(document.department_ids || []);
+    setDepartmentDenyIds(document.department_deny_ids || []);
+    setRoleAllowIds(document.role_allow_ids || []);
+    setRoleDenyIds(document.role_deny_ids || []);
+    setUserAllowIds(document.user_allow_ids || []);
+    setUserDenyIds(document.user_deny_ids || []);
+    setOrganizationWideAccess(Boolean(document.organization_wide_access));
     setSummaryDrafts(Object.fromEntries(
       document.versions.map((version) => [version.id, version.summary || ""]),
     ));
@@ -203,7 +251,6 @@ export default function DocumentLibrary({
             title: draftTitle.trim(),
             document_type: draftType.trim(),
             description: draftDescription.trim(),
-            department_id: draftDepartment || null,
           }),
         },
       );
@@ -212,6 +259,37 @@ export default function DocumentLibrary({
       setReloadKey((current) => current + 1);
     } catch (cause) {
       setError((cause as Error).message || "Document details could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveAccessRules() {
+    if (!selected || !canManage) return;
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      await request(
+        "/api/v1/organizations/" + organization.organization_id + "/documents/" + selected.id + "/access",
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            department_allow_ids: departmentAllowIds,
+            department_deny_ids: departmentDenyIds,
+            role_allow_ids: roleAllowIds,
+            role_deny_ids: roleDenyIds,
+            user_allow_ids: userAllowIds,
+            user_deny_ids: userDenyIds,
+            organization_wide_access: organizationWideAccess,
+          }),
+        },
+      );
+      setSuccess("Document access rules saved.");
+      setReloadKey((current) => current + 1);
+    } catch (cause) {
+      setError((cause as Error).message || "Document access rules could not be saved.");
     } finally {
       setSaving(false);
     }
@@ -383,7 +461,7 @@ export default function DocumentLibrary({
                         <td className="px-5 py-4 sm:px-6">
                           <button type="button" onClick={() => openDocument(document)} className="block w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
                             <span className="block truncate font-semibold text-slate-100">{document.title}</span>
-                            <span className="mt-1 block truncate text-[10px] text-slate-500">{document.document_type}{document.department_name ? ` · ${document.department_name}` : ""}{document.archived ? " · Archived" : ""}</span>
+                            <span className="mt-1 block truncate text-[10px] text-slate-500">{document.document_type}{(document.department_tags?.length ? document.department_tags.join(", ") : document.department_name) ? ` · ${(document.department_tags?.length ? document.department_tags : [document.department_name]).join(", ")}` : ""}{document.archived ? " · Archived" : ""}</span>
                           </button>
                         </td>
                         <td className="max-w-[260px] px-3 py-4"><p className="line-clamp-2 text-[10px] leading-4 text-slate-400">{latest?.summary || "No summary available"}</p></td>
@@ -437,14 +515,26 @@ export default function DocumentLibrary({
                 <label className="block text-[11px] text-slate-400">Description
                   <textarea value={draftDescription} onChange={(event) => setDraftDescription(event.target.value)} rows={3} maxLength={10000} className="sc-input mt-1 h-auto resize-y py-2" />
                 </label>
-                <label className="block text-[11px] text-slate-400">Department
-                  <select value={draftDepartment} onChange={(event) => setDraftDepartment(event.target.value)} className="sc-input mt-1">
-                    <option value="">No department</option>
-                    {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-                  </select>
-                </label>
-                <button type="submit" disabled={saving || !draftTitle.trim() || !draftType.trim()} className="sc-action-button w-full">{saving ? "Saving…" : "Save document details"}</button>
+<button type="submit" disabled={saving || !draftTitle.trim() || !draftType.trim()} className="sc-action-button w-full">{saving ? "Saving…" : "Save document details"}</button>
               </form>
+            )}
+
+            {canManage && (
+              <section className="mt-5 rounded-xl border border-slate-800 bg-slate-950/30 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div><h3 className="text-sm font-semibold text-slate-100">Retrieval access rules</h3><p className="mt-1 text-[10px] text-slate-500">Any matching allow grants access. Any matching deny overrides every grant, including owner/admin retrieval.</p></div>
+                  <label className="flex shrink-0 items-center gap-2 text-[10px] text-slate-300"><input type="checkbox" checked={organizationWideAccess} onChange={(event) => setOrganizationWideAccess(event.target.checked)} />Organization-wide</label>
+                </div>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div><p className="text-xs font-semibold text-slate-300">Departments — allow</p>{departments.map((item) => <label key={"dept-a-"+item.id} className="mt-2 flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={departmentAllowIds.includes(item.id)} onChange={(event) => setDepartmentAllowIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />{item.name}</label>)}</div>
+                  <div><p className="text-xs font-semibold text-rose-300">Departments — deny</p>{departments.map((item) => <label key={"dept-d-"+item.id} className="mt-2 flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={departmentDenyIds.includes(item.id)} onChange={(event) => setDepartmentDenyIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />{item.name}</label>)}</div>
+                  <div><p className="text-xs font-semibold text-slate-300">Roles — allow</p>{accessRoles.map((item) => <label key={"role-a-"+item.id} className="mt-2 flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={roleAllowIds.includes(item.id)} onChange={(event) => setRoleAllowIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />{item.name}</label>)}</div>
+                  <div><p className="text-xs font-semibold text-rose-300">Roles — deny</p>{accessRoles.map((item) => <label key={"role-d-"+item.id} className="mt-2 flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={roleDenyIds.includes(item.id)} onChange={(event) => setRoleDenyIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />{item.name}</label>)}</div>
+                  <div><p className="text-xs font-semibold text-slate-300">Members — allow</p><div className="mt-2 max-h-32 space-y-2 overflow-y-auto">{accessMembers.map((item) => <label key={"user-a-"+item.user_id} className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={userAllowIds.includes(item.user_id)} onChange={(event) => setUserAllowIds((current) => event.target.checked ? [...current, item.user_id] : current.filter((id) => id !== item.user_id))} />{item.display_name || item.email || item.user_id}</label>)}</div></div>
+                  <div><p className="text-xs font-semibold text-rose-300">Members — deny</p><div className="mt-2 max-h-32 space-y-2 overflow-y-auto">{accessMembers.map((item) => <label key={"user-d-"+item.user_id} className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={userDenyIds.includes(item.user_id)} onChange={(event) => setUserDenyIds((current) => event.target.checked ? [...current, item.user_id] : current.filter((id) => id !== item.user_id))} />{item.display_name || item.email || item.user_id}</label>)}</div></div>
+                </div>
+                <button type="button" onClick={() => void saveAccessRules()} disabled={saving} className="sc-action-button mt-4 w-full">{saving ? "Saving…" : "Save access rules"}</button>
+              </section>
             )}
 
             <div className="mt-4 flex flex-wrap gap-2">

@@ -14,6 +14,29 @@ type Choice = { id: string; name: string; description?: string | null };
 const fieldClass = "mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-cyan-400";
 const buttonClass = "rounded-lg bg-cyan-300 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-50";
 
+function apiErrorMessage(data: unknown, fallback: string): string {
+  if (!data || typeof data !== "object") return fallback;
+  const detail = (data as { detail?: unknown }).detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.map((item) => {
+      if (!item || typeof item !== "object") return String(item);
+      const issue = item as { loc?: unknown[]; msg?: unknown };
+      const location = Array.isArray(issue.loc)
+        ? issue.loc.filter((part) => part !== "body").join(" -> ")
+        : "";
+      const message = typeof issue.msg === "string" ? issue.msg : "Invalid value";
+      return location ? "" + location + ": " + message : message;
+    });
+    return messages.filter(Boolean).join("; ") || fallback;
+  }
+  if (detail && typeof detail === "object" && "msg" in detail) {
+    const message = (detail as { msg?: unknown }).msg;
+    if (typeof message === "string") return message;
+  }
+  return fallback;
+}
+
 export default function InvitationPanel({ organization, token }: { organization: Organization; token: string }) {
   const [rows, setRows] = useState<Invitation[]>([]);
   const [roles, setRoles] = useState<Choice[]>([]);
@@ -56,7 +79,7 @@ export default function InvitationPanel({ organization, token }: { organization:
         requestChoices(),
       ]);
       const data = await response.json().catch(() => []);
-      if (!response.ok) throw new Error(data.detail || "Could not load invitations.");
+      if (!response.ok) throw new Error(apiErrorMessage(data, "Could not load invitations."));
       setRows(data);
     } catch (err) {
       setError((err as Error).message);
@@ -120,7 +143,7 @@ export default function InvitationPanel({ organization, token }: { organization:
         }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || "Could not send the invitation.");
+      if (!response.ok) throw new Error(apiErrorMessage(data, "Could not send the invitation."));
       setRows((current) => [data, ...current]);
       setEmail(""); setCandidateName(""); setRole("member");
       setRoleIds([]); setDepartmentIds([]); setStep(1);
