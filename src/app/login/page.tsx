@@ -15,11 +15,15 @@ import {
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Mail01Icon, GoogleIcon, CallIcon, ShieldCheckIcon, EyeIcon, EyeClosedIcon } from "@hugeicons/core-free-icons";
+import { Mail01Icon, CallIcon, ShieldCheckIcon, EyeIcon, EyeClosedIcon } from "@hugeicons/core-free-icons";
 import { auth, firebaseConfigError } from "../firebase";
 
 const API = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 type Provider = "email" | "google" | "phone";
+
+function GoogleBrandIcon({ size = 18 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true"><path fill="#4285F4" d="M43.6 24.5c0-1.4-.1-2.8-.4-4.1H24v7.8h11a9.4 9.4 0 0 1-4.1 6.2v5.1h6.6c3.9-3.6 6.1-8.8 6.1-15Z"/><path fill="#34A853" d="M24 44c5.5 0 10.1-1.8 13.5-4.9l-6.6-5.1c-1.8 1.2-4.1 2-6.9 2-5.3 0-9.8-3.6-11.4-8.4H5.8v5.3A20 20 0 0 0 24 44Z"/><path fill="#FBBC05" d="M12.6 27.6a12 12 0 0 1 0-7.2v-5.3H5.8a20 20 0 0 0 0 17.8l6.8-5.3Z"/><path fill="#EA4335" d="M24 12c3 0 5.7 1 7.8 3.1l5.8-5.8C34.1 6 29.5 4 24 4A20 20 0 0 0 5.8 15.1l6.8 5.3C14.2 15.6 18.7 12 24 12Z"/></svg>;
+}
 
 function readableAuthError(error: unknown): string {
   const code = (error as { code?: string })?.code;
@@ -178,7 +182,7 @@ export default function LoginPage() {
 
   const providers = [
     { id: "email" as const, label: "Email", icon: Mail01Icon },
-    { id: "google" as const, label: "Google", icon: GoogleIcon },
+    { id: "google" as const, label: "Google", icon: null },
     { id: "phone" as const, label: "Phone", icon: CallIcon },
   ];
 
@@ -232,7 +236,7 @@ export default function LoginPage() {
           <div className="sc-auth-card">
             <div className="mb-6 flex items-center justify-between"><span className="text-[11px] font-semibold uppercase tracking-[0.17em] text-slate-300">Sign in to continue</span><span className="rounded-full border border-emerald-300/15 bg-emerald-300/[0.07] px-2.5 py-1 text-[9px] font-semibold tracking-[0.12em] text-emerald-300">ENCRYPTED</span></div>
             <div className="sc-provider-tabs" role="tablist" aria-label="Sign-in method">
-              {providers.map((item) => <button key={item.id} type="button" role="tab" aria-selected={provider === item.id} onClick={() => { setProvider(item.id); setError(""); setConfirmation(null); setOtp(""); }} className={"sc-provider-tab " + (provider === item.id ? "is-active" : "")}><HugeiconsIcon icon={item.icon} size={17} />{item.label}</button>)}
+              {providers.map((item) => <button key={item.id} type="button" role="tab" aria-selected={provider === item.id} onClick={() => { setProvider(item.id); setError(""); setConfirmation(null); setOtp(""); }} className={"sc-provider-tab " + (provider === item.id ? "is-active" : "")}>{item.id === "google" ? <GoogleBrandIcon size={17} /> : <HugeiconsIcon icon={item.icon!} size={17} />}{item.label}</button>)}
             </div>
             {provider === "email" && (
               <form onSubmit={submitEmailLogin} className="mt-6 space-y-4">
@@ -241,7 +245,7 @@ export default function LoginPage() {
                 <button disabled={busy || !auth} className="sc-submit group"><span>{busy ? "Authenticating…" : "Enter your workspace"}</span>{!busy && <span className="text-lg transition-transform duration-300 group-hover:translate-x-1">↗</span>}</button>
               </form>
             )}
-            {provider === "google" && <div className="mt-6"><p className="mb-5 text-sm leading-6 text-slate-400">Continue with the Google account connected to your organization.</p><button type="button" disabled={busy || !auth} onClick={signInWithGoogle} className="sc-submit sc-submit-secondary"><span className="flex items-center gap-3"><HugeiconsIcon icon={GoogleIcon} size={18} />{busy ? "Connecting…" : "Continue with Google"}</span><span>↗</span></button></div>}
+            {provider === "google" && <div className="mt-6"><p className="mb-5 text-sm leading-6 text-slate-400">Continue with the Google account connected to your organization.</p><button type="button" disabled={busy || !auth} onClick={signInWithGoogle} className="sc-submit sc-submit-secondary"><span className="flex items-center gap-3"><GoogleBrandIcon size={18} />{busy ? "Connecting…" : "Continue with Google"}</span><span>↗</span></button></div>}
             {provider === "phone" && (
               <div className="mt-6 space-y-4">
                 <p className="text-sm leading-6 text-slate-400">Use the phone number linked to your SaviraCortex account.</p>
