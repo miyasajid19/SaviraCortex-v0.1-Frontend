@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import BrandLockup from "../BrandLockup";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useRouter } from "next/navigation";
@@ -633,7 +634,7 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
       <button type="button" aria-label="Close navigation" onClick={() => setMobileSidebarOpen(false)} className={"fixed inset-0 z-30 bg-black/20 lg:hidden " + (mobileSidebarOpen ? "block" : "hidden")} />
       <aside className={"fixed inset-y-0 left-0 z-40 flex w-[260px] shrink-0 flex-col border-r border-neutral-200 bg-[#f9f9f9] transition-transform duration-200 lg:static lg:translate-x-0 " + (mobileSidebarOpen ? "translate-x-0" : "-translate-x-full")}>
         <div className="flex items-center justify-between px-4 pb-4 pt-5">
-          <Link href="/chat" className="text-[15px] font-semibold tracking-tight text-neutral-900">SaviraCortex</Link>
+          <BrandLockup href="/chat" variant="light" size="compact" />
           <button type="button" onClick={startNewChat} disabled={sending} aria-label="New chat" title="New chat" className="grid h-9 w-9 place-items-center rounded-lg border border-neutral-200 bg-white text-lg text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-40">+</button>
         </div>
         <div className="px-3 pb-4">

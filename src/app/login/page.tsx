@@ -14,6 +14,7 @@ import {
 } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import BrandLockup from "../../components/BrandLockup";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Mail01Icon, CallIcon, ShieldCheckIcon, EyeIcon, EyeClosedIcon } from "@hugeicons/core-free-icons";
 import { auth, firebaseConfigError } from "../firebase";
@@ -196,10 +197,7 @@ export default function LoginPage() {
         <div className="sc-orbit sc-orbit-b" aria-hidden="true" />
         <div className="sc-orbit sc-orbit-c" aria-hidden="true" />
         <div className="relative z-10 flex items-center justify-between">
-          <Link href="/" className="sc-wordmark inline-flex items-center gap-3">
-            <span className="sc-mark"><span>S</span></span>
-            <span>Savira<span className="text-cyan-300">Cortex</span></span>
-          </Link>
+          <BrandLockup variant="light" />
           <span className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/[0.045] px-3 py-2 text-[10px] font-medium tracking-[0.16em] text-slate-300 sm:inline-flex"><span className="sc-live-dot" /> INTELLIGENCE, CONNECTED</span>
         </div>
         <div className="relative z-10 my-auto grid items-center gap-8 py-16 lg:grid-cols-[minmax(0,1fr)_minmax(230px,0.8fr)] lg:gap-2 lg:py-10">
@@ -211,7 +209,7 @@ export default function LoginPage() {
           </div>
           <div className="sc-visual relative mx-auto h-[310px] w-full max-w-[390px] sm:h-[370px] lg:-ml-12 lg:mt-8 lg:h-[460px]">
             <div className="sc-core-halo" /><div className="sc-core-ring sc-ring-one" /><div className="sc-core-ring sc-ring-two" /><div className="sc-core-ring sc-ring-three" />
-            <div className="sc-core"><div className="sc-core-inner"><span className="sc-core-spark">✳</span><span className="text-[10px] font-semibold uppercase tracking-[0.24em] text-cyan-100/70">CORTEX</span><span className="mt-1 text-[25px] font-semibold tracking-[-0.07em]">AI<span className="text-cyan-300">.</span></span></div></div>
+            <div className="sc-core"><div className="sc-core-inner"><span className="sc-core-spark">✳</span><span className="text-[10px] font-semibold tracking-[0.24em] text-cyan-100/70">Cortex</span><span className="mt-1 text-[25px] font-semibold tracking-[-0.07em]">AI<span className="text-cyan-300">.</span></span></div></div>
             <div className="sc-node sc-node-doc"><span className="sc-node-icon">▤</span><span><b>Knowledge</b><small>Documents indexed</small></span></div>
             <div className="sc-node sc-node-team"><span className="sc-node-icon">◈</span><span><b>Team context</b><small>Shared understanding</small></span></div>
             <div className="sc-node sc-node-flow"><span className="sc-node-icon">⌘</span><span><b>AI workflows</b><small>Ready to accelerate</small></span></div>
@@ -219,12 +217,12 @@ export default function LoginPage() {
             <div className="sc-float-label">CONTEXT ENGINE <span>● LIVE</span></div>
           </div>
         </div>
-        <div className="relative z-10 flex items-center justify-between border-t border-white/10 pt-5 text-[10px] tracking-[0.08em] text-slate-500"><span>© 2026 SAVIRACORTEX</span><span>THINK CLEARER. MOVE FASTER.</span></div>
+        <div className="relative z-10 flex items-center justify-between border-t border-white/10 pt-5 text-[10px] tracking-[0.08em] text-slate-500"><span>© 2026 SaviraCortex</span><span>THINK CLEARER. MOVE FASTER.</span></div>
       </section>
 
       <section className="sc-auth-side relative flex min-h-screen flex-col px-5 py-6 sm:px-10 lg:px-12 xl:px-[6vw]">
         <header className="relative z-10 flex items-center justify-between">
-          <Link href="/" className="sc-wordmark inline-flex items-center gap-2 lg:hidden"><span className="sc-mark sc-mark-small"><span>S</span></span><span>Savira<span className="text-cyan-300">Cortex</span></span></Link>
+          <BrandLockup variant="light" size="compact" className="lg:hidden" />
           <p className="ml-auto text-xs text-slate-400 sm:text-sm">New here? <Link href="/register" className="font-semibold text-cyan-300 transition hover:text-white">Create account ↗</Link></p>
         </header>
         <div className="relative z-10 mx-auto flex w-full max-w-[440px] flex-1 flex-col justify-center py-12">
@@ -259,7 +257,7 @@ export default function LoginPage() {
           </div>
           <p className="mt-6 text-center text-[11px] leading-5 text-slate-500">By continuing, you agree to access your organization’s secure SaviraCortex workspace.</p>
         </div>
-        <footer className="relative z-10 flex justify-center pb-2 text-[10px] tracking-[0.08em] text-slate-600 lg:justify-end">© 2026 SAVIRACORTEX</footer>
+        <footer className="relative z-10 flex justify-center pb-2 text-[10px] tracking-[0.08em] text-slate-600 lg:justify-end">© 2026 SaviraCortex</footer>
       </section>
     </main>
   );

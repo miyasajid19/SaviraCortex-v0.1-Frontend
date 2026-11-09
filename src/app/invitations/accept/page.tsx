@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { signInWithCustomToken } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import BrandLockup from "../../../components/BrandLockup";
 import { auth } from "../../firebase";
 
 const API = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -105,7 +106,7 @@ export default function AcceptInvitationPage() {
   return (
     <main className="sc-invitation min-h-screen px-5 py-12 text-neutral-900">
       <div className="mx-auto max-w-xl">
-        <Link href="/" className="text-xl font-bold"><span className="text-cyan-400">Savira</span>Cortex</Link>
+        <BrandLockup variant="light" />
         <section className="mt-10 rounded-3xl border border-slate-800 bg-slate-900 p-7 shadow-2xl sm:p-9">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">Organization invitation</p>
           <h1 className="mt-3 text-3xl font-semibold">Complete your account</h1>

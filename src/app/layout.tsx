@@ -8,7 +8,7 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "SaviraCortex â€” Intelligence Workspace",
+  title: "SaviraCortex | Intelligence Workspace",
   description: "Connect your organization's knowledge and AI workflows with SaviraCortex.",
 };
 

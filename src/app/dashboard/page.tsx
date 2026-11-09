@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import BrandLockup from "../../components/BrandLockup";
 import { auth, firebaseConfigError } from "../firebase";
 import InvitationPanel from "./InvitationPanel";
 import DocumentIngestionModal from "./DocumentIngestionModal";
@@ -541,7 +542,7 @@ export default function DashboardPage() {
     <main className="sc-dashboard min-h-screen text-slate-100">
       <header className="sc-topbar">
         <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <Link href="/" className="flex items-center gap-3"><span className="sc-brand-mark">S</span><span className="text-sm font-semibold tracking-tight text-white">SAVIRA<span className="text-cyan-300">CORTEX</span><span className="ml-2 hidden text-[10px] font-medium tracking-[.16em] text-slate-500 sm:inline">WORKSPACE</span></span></Link>
+          <BrandLockup variant="light" size="compact" descriptor="Workspace" />
           <div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-xs font-semibold text-slate-200">{profile?.display_name || "Workspace member"}</p><p className="mt-0.5 text-[10px] text-slate-500">{profile?.email || profile?.phone_number}</p></div><span className="sc-user-avatar">{(profile?.display_name || profile?.email || "U").slice(0,1).toUpperCase()}</span><button onClick={logout} className="sc-signout">Sign out</button></div>
         </div>
       </header>
