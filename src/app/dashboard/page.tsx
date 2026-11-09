@@ -93,6 +93,7 @@ function DepartmentPanel({ organization, token, uploaderId }: { organization: Or
   }
 
   useEffect(() => {
+    if (organization.role !== "owner" && organization.role !== "admin") return;
     let cancelled = false;
     queueMicrotask(() => { if (!cancelled) void loadRoles(); });
     return () => { cancelled = true; };
@@ -141,6 +142,7 @@ function DepartmentPanel({ organization, token, uploaderId }: { organization: Or
   }
 
   useEffect(() => {
+    if (organization.role !== "owner" && organization.role !== "admin") return;
     let cancelled = false;
     queueMicrotask(() => { if (!cancelled) void loadMembers(); });
     return () => { cancelled = true; };
@@ -230,6 +232,7 @@ function DepartmentPanel({ organization, token, uploaderId }: { organization: Or
   }
 
   useEffect(() => {
+    if (organization.role !== "owner" && organization.role !== "admin") return;
     let cancelled = false;
     queueMicrotask(() => { if (!cancelled) void loadDepartmentAssignments(selectedDepartmentId); });
     return () => { cancelled = true; };
@@ -309,6 +312,7 @@ function DepartmentPanel({ organization, token, uploaderId }: { organization: Or
   }
 
   useEffect(() => {
+    if (organization.role !== "owner" && organization.role !== "admin") return;
     let cancelled = false;
     queueMicrotask(() => { if (!cancelled) void loadDepartments(); });
     return () => { cancelled = true; };
@@ -350,11 +354,57 @@ function DepartmentPanel({ organization, token, uploaderId }: { organization: Or
     { id: "access" as const, label: "Access & roles", detail: "Invitations and permissions", mark: "04" },
   ];
 
+  if (!canManage) {
+    return (
+      <article className="sc-workspace">
+        <header className="sc-workspace-head">
+          <div className="min-w-0">
+            <div className="sc-kicker"><span className="sc-live-dot" /> ORGANIZATION WORKSPACE</div>
+            <h2 className="mt-3 truncate text-2xl font-semibold tracking-tight text-white sm:text-3xl">{organization.organization_name}</h2>
+            <p className="mt-2 text-sm text-slate-400">Your organization membership and assistant access.</p>
+          </div>
+          <span className="sc-role-chip">Member</span>
+        </header>
+        <div className="sc-workspace-body">
+          <aside className="sc-workspace-sidebar" aria-label="Organization navigation">
+            <p className="sc-side-label">KNOWLEDGE</p>
+            <Link href={"/dashboard/chat?organizationId=" + organization.organization_id} className="sc-side-link mt-3 is-active">
+              <span className="sc-side-icon">&#10033;</span>
+              <span className="min-w-0 text-left">
+                <span className="block text-sm font-semibold">AI assistant</span>
+                <span className="mt-0.5 block text-[11px] text-slate-500">Ask your workspace</span>
+              </span>
+              <span className="ml-auto text-slate-500">↗</span>
+            </Link>
+          </aside>
+          <div className="sc-workspace-content">
+            <section className="sc-detail-panel">
+              <p className="sc-kicker">YOUR ACCESS</p>
+              <h3 className="mt-2 text-xl font-semibold text-white">Welcome to {organization.organization_name}</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-400">You can use the AI assistant to ask questions about the knowledge available to your organization.</p>
+              <Link href={"/dashboard/chat?organizationId=" + organization.organization_id} className="sc-primary-link mt-5">Open AI assistant <span>↗</span></Link>
+              <div className="my-5 border-t border-white/[0.08]" />
+              <p className="sc-kicker">ORGANIZATION DETAILS</p>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <span className="text-sm text-slate-400">Your access level</span>
+                <span className="sc-role-chip">Member</span>
+              </div>
+              <div className="mt-3">
+                <p className="text-xs text-slate-500">Organization ID</p>
+                <p className="mt-1 break-all font-mono text-xs text-slate-400">{organization.organization_id}</p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </article>
+    );
+  }
+
   return (
     <article className="sc-workspace">
       <header className="sc-workspace-head">
         <div className="min-w-0"><div className="sc-kicker"><span className="sc-live-dot" /> ORGANIZATION WORKSPACE</div><h2 className="mt-3 truncate text-2xl font-semibold tracking-tight text-white sm:text-3xl">{organization.organization_name}</h2><p className="mt-2 text-sm text-slate-400">A focused place for your teams, knowledge and people.</p></div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2"><span className="sc-role-chip">{organization.role}</span><DocumentIngestionModal organization={organization} uploaderId={uploaderId} departments={departments} /></div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2"><span className="sc-role-chip">{organization.role}</span>{canManage && <DocumentIngestionModal organization={organization} uploaderId={uploaderId} departments={departments} />}</div>
       </header>
       <div className="sc-workspace-body">
         <aside className="sc-workspace-sidebar" aria-label="Organization navigation">
