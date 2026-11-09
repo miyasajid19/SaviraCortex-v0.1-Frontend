@@ -121,6 +121,8 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [conversationSearch, setConversationSearch] = useState("");
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [historyOffset, setHistoryOffset] = useState(0);
@@ -276,6 +278,20 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
   const selectedOrganization = profile?.organizations.find(
     (organization) => organization.organization_id === selectedOrganizationId,
   );
+  const filteredConversations = conversations.filter((conversation) =>
+    conversation.title.toLowerCase().includes(conversationSearch.trim().toLowerCase()),
+  );
+
+  function startNewChat() {
+    if (sending) return;
+    abortController.current?.abort();
+    setMessages([]);
+    setHistoryOffset(0);
+    setHasOlderMessages(false);
+    setError("");
+    setMobileSidebarOpen(false);
+    router.replace("/chat");
+  }
 
   async function sendMessage(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
@@ -613,110 +629,75 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
   }
 
   return (
-    <main className="flex min-h-screen flex-col bg-[#07101a] text-slate-100">
-      <header className="sticky top-0 z-20 border-b border-white/[0.07] bg-[#08121d]/90 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <div className="flex min-w-0 items-center gap-3">
-            <Link href="/dashboard" aria-label="Back to dashboard" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-300 transition hover:border-cyan-300/40 hover:text-cyan-200">
-              <span aria-hidden="true">←</span>
-            </Link>
-            <div className="min-w-0">
-              <Link href="/dashboard" className="text-xs font-semibold tracking-wide text-slate-400 hover:text-cyan-200">
-                SAVIRA<span className="text-cyan-300">CORTEX</span>
-              </Link>
-              <h1 className="truncate text-base font-semibold text-white sm:text-lg">Knowledge assistant</h1>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {sending && <button type="button" onClick={stopGeneration} className="rounded-xl border border-rose-300/20 px-3 py-2.5 text-xs text-rose-200 transition hover:bg-rose-300/10">Stop</button>}
-            <label htmlFor="chat-organization" className="hidden text-xs text-slate-500 sm:block">Workspace</label>
-            <select
-              id="chat-organization"
-              value={selectedOrganizationId}
-              onChange={(event) => changeOrganization(event.target.value)}
-              disabled={loadingProfile || !profile?.organizations.length || sending}
-              className="max-w-[190px] rounded-xl border border-white/10 bg-[#0c1b29] px-3 py-2.5 text-xs text-slate-200 outline-none transition focus:border-cyan-300/50 sm:max-w-[250px] sm:text-sm"
-            >
-              {profile?.organizations.map((organization) => (
-                <option key={organization.organization_id} value={organization.organization_id}>
-                  {organization.organization_name}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Open a previous conversation"
-              value={routeConversationId || ""}
-              onChange={(event) => {
-                const value = event.target.value;
-                router.push(value ? `/chat/${value}` : "/chat");
-              }}
-              disabled={sending || !selectedOrganizationId}
-              className="max-w-[170px] rounded-xl border border-white/10 bg-[#0c1b29] px-2 py-2.5 text-[11px] text-slate-200 outline-none sm:max-w-[220px] sm:text-xs"
-            >
-              <option value="">Recent conversations</option>
-              {conversations.map((conversation) => (
-                <option key={conversation.conversation_id} value={conversation.conversation_id}>
-                  {conversation.title}
-                </option>
-              ))}
-            </select>
-            {routeConversationId && (
-              <>
-                <button type="button" onClick={() => void renameCurrentConversation()} disabled={sending} className="rounded-xl border border-white/10 px-2.5 py-2.5 text-[11px] text-slate-400 transition hover:border-cyan-200/30 hover:text-cyan-100 disabled:opacity-40">Rename</button>
-                <button type="button" onClick={() => void deleteCurrentConversation()} disabled={sending} className="rounded-xl border border-rose-300/20 px-2.5 py-2.5 text-[11px] text-rose-200 transition hover:bg-rose-300/10 disabled:opacity-40">Delete</button>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                abortController.current?.abort();
-                setMessages([]);
-                setHistoryOffset(0);
-                setHasOlderMessages(false);
-                setError("");
-                router.replace("/chat");
-              }}
-              disabled={sending}
-              className="rounded-xl border border-white/10 px-2.5 py-2.5 text-[11px] text-slate-400 transition hover:border-white/20 hover:text-white disabled:opacity-40 sm:px-3 sm:text-xs"
-            >
-              New chat
+    <main className="flex min-h-screen bg-white text-neutral-900">
+      <button type="button" aria-label="Close navigation" onClick={() => setMobileSidebarOpen(false)} className={"fixed inset-0 z-30 bg-black/20 lg:hidden " + (mobileSidebarOpen ? "block" : "hidden")} />
+      <aside className={"fixed inset-y-0 left-0 z-40 flex w-[260px] shrink-0 flex-col border-r border-neutral-200 bg-[#f9f9f9] transition-transform duration-200 lg:static lg:translate-x-0 " + (mobileSidebarOpen ? "translate-x-0" : "-translate-x-full")}>
+        <div className="flex items-center justify-between px-4 pb-4 pt-5">
+          <Link href="/chat" className="text-[15px] font-semibold tracking-tight text-neutral-900">SaviraCortex</Link>
+          <button type="button" onClick={startNewChat} disabled={sending} aria-label="New chat" title="New chat" className="grid h-9 w-9 place-items-center rounded-lg border border-neutral-200 bg-white text-lg text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-40">+</button>
+        </div>
+        <div className="px-3 pb-4">
+          <button type="button" onClick={startNewChat} disabled={sending} className="flex w-full items-center gap-3 rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-left text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:opacity-40"><span className="text-lg leading-none">+</span>New chat</button>
+        </div>
+        <div className="px-4 pb-2">
+          <label htmlFor="chat-organization" className="mb-2 block text-[11px] font-medium text-neutral-500">Workspace</label>
+          <select id="chat-organization" value={selectedOrganizationId} onChange={(event) => { changeOrganization(event.target.value); setMobileSidebarOpen(false); }} disabled={loadingProfile || !profile?.organizations.length || sending} className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-xs text-neutral-800 outline-none focus:border-neutral-400">
+            {profile?.organizations.map((organization) => <option key={organization.organization_id} value={organization.organization_id}>{organization.organization_name}</option>)}
+          </select>
+        </div>
+        <div className="px-3 pt-5">
+          <p className="px-2 pb-2 text-[11px] font-semibold text-neutral-500">Your chats</p>
+          <input type="search" aria-label="Search conversations" value={conversationSearch} onChange={(event) => setConversationSearch(event.target.value)} placeholder="Search chats" className="mb-2 w-full rounded-lg border border-transparent bg-neutral-100 px-3 py-2 text-xs text-neutral-800 outline-none placeholder:text-neutral-500 focus:border-neutral-300 focus:bg-white" />
+        </div>
+        <nav aria-label="Conversation history" className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
+          {filteredConversations.map((conversation) => (
+            <button key={conversation.conversation_id} type="button" onClick={() => { router.push("/chat/" + conversation.conversation_id); setMobileSidebarOpen(false); }} title={conversation.title} className={"flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs transition " + (routeConversationId === conversation.conversation_id ? "bg-neutral-200/80 text-neutral-900" : "text-neutral-700 hover:bg-neutral-200/60")}>
+              <span className="min-w-0 flex-1 truncate">{conversation.title || "New conversation"}</span>
             </button>
-          </div>
+          ))}
+          {!filteredConversations.length && <p className="px-3 py-3 text-xs leading-5 text-neutral-500">{conversationSearch ? "No matching conversations." : "Your conversations will appear here."}</p>}
+        </nav>
+        <div className="border-t border-neutral-200 p-3">
+          <Link href="/dashboard" className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs text-neutral-600 transition hover:bg-neutral-200/70 hover:text-neutral-900">Back to dashboard</Link>
+          {profile?.display_name && <p className="truncate px-3 pt-2 text-[11px] text-neutral-500">{profile.display_name}</p>}
         </div>
-      </header>
-
-      <section className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 sm:px-6">
-        <div className="flex items-center justify-between gap-3 py-5">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,.65)]" />
-            Answers grounded in authorized organization documents
+      </aside>
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 bg-white/95 px-4 backdrop-blur-sm sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <button type="button" onClick={() => setMobileSidebarOpen(true)} aria-label="Open navigation" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-neutral-600 hover:bg-neutral-100 lg:hidden">Menu</button>
+            <h1 className="truncate text-sm font-medium text-neutral-800">{selectedOrganization?.organization_name || "SaviraCortex"}</h1>
           </div>
-          {selectedOrganization && (
-            <span className="hidden max-w-[45%] truncate rounded-full border border-cyan-300/15 bg-cyan-300/[0.06] px-3 py-1 text-[11px] text-cyan-100/80 sm:inline">
-              {selectedOrganization.organization_name}
-            </span>
-          )}
-        </div>
+          <div className="flex items-center gap-2">
+            {sending && <button type="button" onClick={stopGeneration} className="rounded-lg px-3 py-2 text-xs text-neutral-600 hover:bg-neutral-100">Stop generating</button>}
+            {routeConversationId && <>
+              <button type="button" onClick={() => void renameCurrentConversation()} disabled={sending} className="rounded-lg px-3 py-2 text-xs text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-40">Rename</button>
+              <button type="button" onClick={() => void deleteCurrentConversation()} disabled={sending} className="rounded-lg px-3 py-2 text-xs text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-40">Delete</button>
+            </>}
+            <button type="button" onClick={startNewChat} disabled={sending} className="rounded-lg border border-neutral-200 px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-40 sm:hidden">New chat</button>
+          </div>
+        </header>
+        <section className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-4 sm:px-6">
+        <div className="flex items-center justify-end py-3"><span className="text-[11px] text-neutral-500">Answers use documents you are authorized to access</span></div>
 
         {error && (
-          <div role="alert" className="mb-4 rounded-xl border border-rose-400/25 bg-rose-400/[0.07] px-4 py-3 text-sm text-rose-200">
+          <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
           </div>
         )}
 
         {loadingProfile ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-slate-400">
+          <div className="flex flex-1 items-center justify-center text-sm text-neutral-600">
             Loading your workspace…
           </div>
         ) : !profile?.organizations.length ? (
           <div className="flex flex-1 flex-col items-center justify-center py-20 text-center">
-            <div className="grid h-16 w-16 place-items-center rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.07] text-2xl text-cyan-200">⌘</div>
-            <h2 className="mt-6 text-xl font-semibold text-white">No organization yet</h2>
-            <p className="mt-2 max-w-md text-sm leading-6 text-slate-400">
+            <div className="grid h-16 w-16 place-items-center rounded-2xl border border-neutral-200 bg-neutral-50 text-2xl text-neutral-700">S</div>
+            <h2 className="mt-6 text-xl font-semibold text-neutral-900">No organization yet</h2>
+            <p className="mt-2 max-w-md text-sm leading-6 text-neutral-600">
               Create an organization or accept an invitation before asking questions about its knowledge base.
             </p>
-            <Link href="/dashboard" className="mt-6 rounded-xl bg-cyan-200 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-100">
+            <Link href="/dashboard" className="mt-6 rounded-lg bg-neutral-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-neutral-700">
               Open dashboard
             </Link>
           </div>
@@ -727,33 +708,24 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
               onScroll={(event) => {
                 if (event.currentTarget.scrollTop < 80) void loadOlderMessages();
               }}
-              className="min-h-[45vh] max-h-[calc(100vh-290px)] overflow-y-auto space-y-6 pb-8 pt-4 pr-2"
+              className="min-h-[45vh] max-h-[calc(100vh-190px)] flex-1 space-y-8 overflow-y-auto pb-8 pt-4 pr-2"
             >
-              {loadingOlder && <p className="py-2 text-center text-xs text-slate-500">Loading older messages…</p>}
-              {loadingConversation && <p className="py-2 text-center text-xs text-slate-500">Loading conversation…</p>}
+              {loadingOlder && <p className="py-2 text-center text-xs text-neutral-500">Loading older messages…</p>}
+              {loadingConversation && <p className="py-2 text-center text-xs text-neutral-500">Loading conversation…</p>}
               {!messages.length && !loadingConversation && (
-                <div className="flex min-h-[48vh] flex-col items-center justify-center py-12 text-center">
-                  <div className="relative grid h-20 w-20 place-items-center rounded-[26px] border border-cyan-200/25 bg-gradient-to-br from-cyan-300/15 to-blue-400/[0.06] shadow-[0_0_65px_rgba(34,211,238,.10)]">
-                    <span className="text-3xl font-semibold text-cyan-100">S</span>
-                    <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-[#07101a] bg-emerald-400" />
-                  </div>
-                  <p className="mt-7 text-[10px] font-semibold uppercase tracking-[0.24em] text-cyan-300/80">Your organization’s knowledge</p>
-                  <h2 className="mt-3 max-w-2xl text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                    What would you like to understand?
-                  </h2>
-                  <p className="mt-3 max-w-xl text-sm leading-7 text-slate-400">
-                    Ask a question. SaviraCortex searches the documents you’re authorized to access and returns an answer with source references.
-                  </p>
+                <div className="flex min-h-[52vh] flex-col items-center justify-center py-12 text-center">
+                  <h2 className="mt-2 max-w-2xl text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">What can I help you with?</h2>
+                  <p className="mt-3 max-w-xl text-sm leading-7 text-neutral-500">Ask a question about your organization’s knowledge. Answers are grounded in the documents you can access.</p>
                   <div className="mt-8 grid w-full max-w-3xl gap-3 sm:grid-cols-3">
                     {starterPrompts.map((prompt) => (
                       <button
                         key={prompt}
                         type="button"
                         onClick={() => setDraft(prompt)}
-                        className="rounded-2xl border border-white/[0.09] bg-white/[0.025] p-4 text-left text-xs leading-5 text-slate-300 transition hover:-translate-y-0.5 hover:border-cyan-200/30 hover:bg-cyan-200/[0.04] hover:text-white"
+                        className="rounded-xl border border-neutral-200 bg-white p-4 text-left text-xs leading-5 text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50"
                       >
                         {prompt}
-                        <span className="mt-3 block text-cyan-300">Use prompt ↗</span>
+                        <span className="mt-3 block text-[11px] text-neutral-500">Use prompt</span>
                       </button>
                     ))}
                   </div>
@@ -762,13 +734,12 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
 
               {messages.map((message) => (
                 <article key={message.id} className={message.role === "user" ? "ml-auto max-w-3xl" : "mr-auto max-w-4xl"}>
-                  <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-neutral-600">
                     {message.role === "assistant" ? (
                       <>
-                        <span className="grid h-6 w-6 place-items-center rounded-lg border border-cyan-300/20 bg-cyan-300/[0.08] text-[11px] text-cyan-100">S</span>
-                        SaviraCortex
+                        <span>SaviraCortex</span>
                         {message.status && (
-                          <span className={message.status === "insufficient_evidence" ? "rounded-full border border-amber-300/20 bg-amber-300/[0.07] px-2 py-1 text-[9px] tracking-normal text-amber-200" : "rounded-full border border-emerald-300/15 bg-emerald-300/[0.06] px-2 py-1 text-[9px] tracking-normal text-emerald-200"}>
+                          <span className="rounded-full bg-neutral-100 px-2 py-1 text-[10px] font-normal tracking-normal text-neutral-600">
                             {message.status.replaceAll("_", " ")}
                           </span>
                         )}
@@ -777,22 +748,22 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
                       <>You</>
                     )}
                   </div>
-                  <div className={message.role === "user" ? "rounded-2xl rounded-tr-md border border-cyan-200/15 bg-cyan-200/[0.08] px-5 py-4 text-sm leading-7 text-slate-100" : "rounded-2xl rounded-tl-md border border-white/[0.08] bg-[#0c1a28] px-5 py-5 text-sm leading-7 text-slate-200 shadow-xl shadow-black/10"}>
+                  <div className={message.role === "user" ? "ml-auto max-w-[88%] rounded-3xl bg-[#f4f4f4] px-5 py-3 text-sm leading-7 text-neutral-900" : "bg-transparent px-0 py-1 text-[15px] leading-7 text-neutral-800"}>
                     {message.role === "assistant" ? (
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
-                          h1: ({ children }) => <h1 className="mb-4 mt-2 text-2xl font-semibold tracking-tight text-white">{children}</h1>,
+                          h1: ({ children }) => <h1 className="mb-4 mt-2 text-2xl font-semibold tracking-tight text-neutral-900">{children}</h1>,
                           h2: ({ children }) => (
-                            <h2 id={String(children).trim().toLowerCase() === "references" ? "references" : undefined} className="mb-3 mt-6 border-b border-white/[0.07] pb-2 text-lg font-semibold text-white first:mt-0">{children}</h2>
+                            <h2 id={String(children).trim().toLowerCase() === "references" ? "references" : undefined} className="mb-3 mt-6 border-b border-neutral-200 pb-2 text-lg font-semibold text-neutral-900 first:mt-0">{children}</h2>
                           ),
-                          h3: ({ children }) => <h3 className="mb-2 mt-5 text-base font-semibold text-slate-100">{children}</h3>,
+                          h3: ({ children }) => <h3 className="mb-2 mt-5 text-base font-semibold text-neutral-900">{children}</h3>,
                           p: ({ children }) => <p className="mb-3 whitespace-pre-wrap leading-7 last:mb-0">{children}</p>,
-                          ul: ({ children }) => <ul className="mb-4 list-disc space-y-1 pl-6 marker:text-cyan-300">{children}</ul>,
-                          ol: ({ children }) => <ol className="mb-4 list-decimal space-y-1 pl-6 marker:text-cyan-300">{children}</ol>,
+                          ul: ({ children }) => <ul className="mb-4 list-disc space-y-1 pl-6 marker:text-neutral-700">{children}</ul>,
+                          ol: ({ children }) => <ol className="mb-4 list-decimal space-y-1 pl-6 marker:text-neutral-700">{children}</ol>,
                           li: ({ children }) => <li className="pl-1 leading-7">{children}</li>,
-                          strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
-                          blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-cyan-300/50 pl-4 text-slate-400">{children}</blockquote>,
+                          strong: ({ children }) => <strong className="font-semibold text-neutral-900">{children}</strong>,
+                          blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-neutral-300 pl-4 text-neutral-600">{children}</blockquote>,
                           a: ({ href, children }) => {
                             const citationNumber = href === "#references" ? Number(String(children).trim()) : 0;
                             const citation = citationNumber > 0
@@ -802,19 +773,19 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
                               return (
                                 <span className="mx-0.5 inline-flex whitespace-nowrap" key={citation.evidence_id}>
                                   <span aria-hidden="true">[</span>
-                                  <button type="button" onClick={() => void openCitation(citation)} aria-label={"Open source " + citationNumber} title={"Open " + (citation.document_title || "source document") + (citation.page ? ", page " + citation.page : "")} className="font-semibold text-cyan-200 underline decoration-cyan-200/30 underline-offset-4 hover:text-cyan-100">{children}</button>
+                                  <button type="button" onClick={() => void openCitation(citation)} aria-label={"Open source " + citationNumber} title={"Open " + (citation.document_title || "source document") + (citation.page ? ", page " + citation.page : "")} className="font-semibold text-neutral-800 underline decoration-neutral-400 underline-offset-4 hover:text-black">{children}</button>
                                   <span aria-hidden="true">]</span>
                                 </span>
                               );
                             }
-                            return <a href={href} className="font-semibold text-cyan-200 underline decoration-cyan-200/30 underline-offset-4 hover:text-cyan-100">{children}</a>;
+                            return <a href={href} className="font-semibold text-neutral-800 underline decoration-neutral-400 underline-offset-4 hover:text-black">{children}</a>;
                           },
                           table: ({ children }) => <div className="my-4 overflow-x-auto"><table className="w-full border-collapse text-left text-xs">{children}</table></div>,
-                          th: ({ children }) => <th className="border border-white/10 bg-white/[0.04] px-3 py-2 font-semibold text-white">{children}</th>,
-                          td: ({ children }) => <td className="border border-white/10 px-3 py-2 align-top">{children}</td>,
-                          pre: ({ children }) => <pre className="my-4 overflow-x-auto rounded-xl border border-white/10 bg-[#07101a] p-4 text-xs leading-6">{children}</pre>,
-                          code: ({ children }) => <code className="rounded bg-white/[0.07] px-1.5 py-0.5 text-[0.9em] text-cyan-100">{children}</code>,
-                          hr: () => <hr className="my-5 border-white/10" />,
+                          th: ({ children }) => <th className="border border-neutral-200 bg-neutral-50 px-3 py-2 font-semibold text-neutral-900">{children}</th>,
+                          td: ({ children }) => <td className="border border-neutral-200 px-3 py-2 align-top">{children}</td>,
+                          pre: ({ children }) => <pre className="my-4 overflow-x-auto rounded-xl border border-neutral-200 bg-white p-4 text-xs leading-6">{children}</pre>,
+                          code: ({ children }) => <code className="rounded bg-neutral-100 px-1.5 py-0.5 text-[0.9em] text-neutral-800">{children}</code>,
+                          hr: () => <hr className="my-5 border-neutral-200" />,
                         }}
                       >
                         {linkCitationMarkers(message.content)}
@@ -823,22 +794,22 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
                       <p className="whitespace-pre-wrap">{message.content}</p>
                     )}
                     {!!message.missingInformation?.length && (
-                      <div className="mt-4 rounded-xl border border-amber-300/15 bg-amber-300/[0.05] p-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-amber-200">Evidence still missing</p>
-                        <ul className="mt-2 list-disc space-y-1 pl-4 text-xs leading-5 text-slate-400">
+                      <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-neutral-700">Evidence still missing</p>
+                        <ul className="mt-2 list-disc space-y-1 pl-4 text-xs leading-5 text-neutral-600">
                           {message.missingInformation.map((item, index) => <li key={index}>{item}</li>)}
                         </ul>
                       </div>
                     )}
                     {!!message.warnings?.length && (
-                      <ul className="mt-3 space-y-1 text-[11px] leading-5 text-amber-200/70">
+                      <ul className="mt-3 space-y-1 text-[11px] leading-5 text-neutral-700/70">
                         {message.warnings.map((warning, index) => <li key={index}>Note: {warning}</li>)}
                       </ul>
                     )}
                   </div>
                   {message.role === "assistant" && message.generationId && (
                     <div className="mt-3 flex flex-wrap items-center gap-2 px-1 text-xs">
-                      <span className="mr-1 text-slate-500">Was this answer relevant?</span>
+                      <span className="mr-1 text-neutral-500">Was this answer helpful?</span>
                       <button
                         type="button"
                         onClick={() => void submitFeedback(message.id, message.generationId!, "relevant")}
@@ -847,11 +818,11 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
                         aria-pressed={message.feedbackStatus === "relevant"}
                         className={"rounded-lg border px-3 py-1.5 transition disabled:opacity-50 " + (
                           message.feedbackStatus === "relevant"
-                            ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-200"
-                            : "border-white/10 text-slate-400 hover:border-emerald-300/30 hover:text-emerald-200"
+                            ? "border-neutral-500 bg-neutral-100 text-neutral-900"
+                            : "border-neutral-200 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
                         )}
                       >
-                        &#128077; Relevant
+                        Helpful
                       </button>
                       <button
                         type="button"
@@ -861,25 +832,25 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
                         aria-pressed={message.feedbackStatus === "not_relevant"}
                         className={"rounded-lg border px-3 py-1.5 transition disabled:opacity-50 " + (
                           message.feedbackStatus === "not_relevant"
-                            ? "border-rose-300/40 bg-rose-300/10 text-rose-200"
-                            : "border-white/10 text-slate-400 hover:border-rose-300/30 hover:text-rose-200"
+                            ? "border-neutral-500 bg-neutral-100 text-neutral-900"
+                            : "border-neutral-200 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
                         )}
                       >
-                        &#128078; Not relevant
+                        Not helpful
                       </button>
-                      {message.feedbackSaving && <span className="text-slate-500">Saving...</span>}
-                      {message.feedbackError && <span role="alert" className="text-rose-300">{message.feedbackError}</span>}
+                      {message.feedbackSaving && <span className="text-neutral-500">Saving...</span>}
+                      {message.feedbackError && <span role="alert" className="text-red-600">{message.feedbackError}</span>}
                     </div>
                   )}
                 </article>
               ))}
 
               {sending && (
-                <div className="mr-auto flex max-w-4xl items-center gap-3 rounded-2xl border border-white/[0.08] bg-[#0c1a28] px-5 py-4 text-xs text-slate-400" role="status" aria-live="polite">
+                <div className="mr-auto flex max-w-3xl items-center gap-3 px-1 py-3 text-xs text-neutral-500" role="status" aria-live="polite">
                   <span className="flex gap-1">
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-300 [animation-delay:-.2s]" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-300 [animation-delay:-.1s]" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-300" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-neutral-500 [animation-delay:-.2s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-neutral-500 [animation-delay:-.1s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-neutral-500" />
                   </span>
                   {streamingStage || "Working on your answer…"}
                 </div>
@@ -887,9 +858,9 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
               <div ref={scrollAnchor} />
             </div>
 
-            <div className="sticky bottom-0 -mx-4 border-t border-white/[0.07] bg-[#07101a]/95 px-4 pb-5 pt-4 backdrop-blur-xl sm:-mx-6 sm:px-6">
-              <form onSubmit={sendMessage} className="mx-auto max-w-4xl">
-                <div className="rounded-2xl border border-white/10 bg-[#0c1b29] p-2 shadow-2xl shadow-black/20 transition focus-within:border-cyan-200/30">
+            <div className="sticky bottom-0 -mx-4 bg-white px-4 pb-5 pt-3 sm:-mx-6 sm:px-6">
+              <form onSubmit={sendMessage} className="mx-auto max-w-3xl">
+                <div className="rounded-3xl border border-neutral-300 bg-white p-2 shadow-[0_2px_10px_rgba(0,0,0,0.06)] transition focus-within:border-neutral-400">
                   <label htmlFor="chat-prompt" className="sr-only">Ask your organization’s knowledge base</label>
                   <textarea
                     id="chat-prompt"
@@ -903,23 +874,23 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
                         void sendMessage();
                       }
                     }}
-                    placeholder="Ask a question about your organization’s documents…"
+                    placeholder="Message SaviraCortex"
                     disabled={sending}
-                    className="max-h-40 min-h-[58px] w-full resize-y bg-transparent px-3 py-3 text-sm leading-6 text-white outline-none placeholder:text-slate-600 disabled:opacity-60"
+                    className="max-h-40 min-h-[58px] w-full resize-y bg-transparent px-3 py-3 text-sm leading-6 text-neutral-900 outline-none placeholder:text-neutral-400 disabled:opacity-60"
                   />
-                  <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-2 pt-2">
-                    <p className="text-[10px] text-slate-600">Enter to send · Shift + Enter for a new line</p>
+                  <div className="flex items-center justify-between gap-3 px-2 pt-1">
+                    <p className="text-[10px] text-neutral-500">Enter to send | Shift + Enter for a new line</p>
                     <button
                       type="submit"
                       disabled={sending || !draft.trim()}
-                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-200 to-sky-300 px-4 py-2.5 text-xs font-bold text-slate-950 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="inline-flex items-center gap-2 rounded-full bg-neutral-900 px-4 py-2.5 text-xs font-medium text-white transition hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {sending ? "Working…" : "Send"}
-                      <span aria-hidden="true">↗</span>
+                      <span aria-hidden="true">+</span>
                     </button>
                   </div>
                 </div>
-                <p className="mt-3 text-center text-[10px] text-slate-600">
+                <p className="mt-3 text-center text-[10px] text-neutral-500">
                   Conversations are saved to your workspace. Sources are limited to documents you are authorized to access.
                 </p>
               </form>
@@ -929,7 +900,7 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
       </section>
       {(pdfViewer || pdfLoading) && (
         <div
-          className="fixed inset-0 z-50 flex justify-end bg-black/70 p-2 backdrop-blur-sm sm:p-5"
+          className="fixed inset-0 z-50 flex justify-end bg-black/40 p-2 sm:p-5"
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closePdfViewer();
@@ -939,25 +910,25 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
             role="dialog"
             aria-modal="true"
             aria-label="PDF source viewer"
-            className="flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#081522] shadow-2xl shadow-black/50"
+            className="flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-2xl"
           >
-            <header className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 px-4 py-3 sm:px-5">
+            <header className="flex shrink-0 items-center justify-between gap-4 border-b border-neutral-200 px-4 py-3 sm:px-5">
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300">Source document</p>
-                <h2 className="truncate text-sm font-semibold text-white">{pdfViewer?.title || pdfLoadingTitle}</h2>
-                {pdfViewer?.page && <p className="text-[11px] text-slate-400">Opened at page {pdfViewer.page}</p>}
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-700">Source document</p>
+                <h2 className="truncate text-sm font-semibold text-neutral-900">{pdfViewer?.title || pdfLoadingTitle}</h2>
+                {pdfViewer?.page && <p className="text-[11px] text-neutral-600">Opened at page {pdfViewer.page}</p>}
               </div>
               <button
                 type="button"
                 onClick={closePdfViewer}
                 aria-label="Close PDF viewer"
-                className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 text-lg text-slate-300 transition hover:border-white/25 hover:bg-white/[0.06] hover:text-white"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-neutral-200 text-lg text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-900"
               >
-                ×
+                Close
               </button>
             </header>
             {pdfLoading ? (
-              <div className="flex flex-1 items-center justify-center text-sm text-slate-300" role="status">Loading PDF…</div>
+              <div className="flex flex-1 items-center justify-center text-sm text-neutral-700" role="status">Loading PDF…</div>
             ) : pdfViewer ? (
               <iframe
                 key={pdfViewer.url}
@@ -969,6 +940,7 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
           </section>
         </div>
       )}
+      </div>
     </main>
   );
 }
