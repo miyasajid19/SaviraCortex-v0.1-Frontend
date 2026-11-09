@@ -11,7 +11,7 @@ export default function SignupPage() {
   }, [router]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-300">
+    <main className="flex min-h-screen items-center justify-center bg-white text-neutral-600">
       Redirecting to the registration page…
     </main>
   );

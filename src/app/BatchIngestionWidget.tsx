@@ -322,7 +322,7 @@ export default function BatchIngestionWidget() {
   return (
     <>
       {(hasBatch || isRunning) && !isOpen && !batchSettled && (
-        <button type="button" onClick={() => setIsOpen(true)} className="fixed bottom-5 right-5 z-[900] flex items-center gap-3 rounded-full border border-cyan-300/40 bg-slate-950 px-4 py-3 text-left text-white shadow-2xl shadow-black/40 transition hover:-translate-y-0.5 hover:border-cyan-200" aria-label="Open document ingestion progress">
+        <button type="button" onClick={() => setIsOpen(true)} className="sc-ingestion-launcher fixed bottom-5 right-5 z-[900] flex items-center gap-3 rounded-full border border-cyan-300/40 bg-slate-950 px-4 py-3 text-left text-white shadow-2xl shadow-black/40 transition hover:-translate-y-0.5 hover:border-cyan-200" aria-label="Open document ingestion progress">
           <span className="relative grid size-9 place-items-center rounded-full bg-cyan-300 text-sm font-bold text-slate-950">
             {isRunning ? <span className="animate-pulse">↻</span> : "PDF"}
             {isRunning && <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-emerald-400 ring-2 ring-slate-950" />}
@@ -332,8 +332,8 @@ export default function BatchIngestionWidget() {
       )}
 
       {isOpen && context && (
-        <div className="fixed inset-0 z-[850] flex items-center justify-center bg-slate-950/75 p-3 backdrop-blur-sm sm:p-6">
-          <section role="dialog" aria-modal="true" aria-labelledby="batch-ingestion-title" className="flex max-h-[min(92dvh,900px)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-[#0b1724] text-white shadow-2xl">
+        <div className="sc-ingestion-overlay fixed inset-0 z-[850] flex items-center justify-center bg-slate-950/75 p-3 backdrop-blur-sm sm:p-6">
+          <section role="dialog" aria-modal="true" aria-labelledby="batch-ingestion-title" className="sc-ingestion-panel flex max-h-[min(92dvh,900px)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-[#0b1724] text-white shadow-2xl">
             <header className="flex items-start justify-between gap-4 border-b border-slate-800 px-5 py-4 sm:px-7">
               <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-400">Knowledge ingestion · Batch</p><h2 id="batch-ingestion-title" className="mt-1 text-xl font-semibold">{hasBatch ? "Batch ingestion progress" : "Add documents"}</h2><p className="mt-1 truncate text-xs text-slate-400">{context.organization.organization_name}</p></div>
               <button type="button" onClick={() => setIsOpen(false)} aria-label="Minimize ingestion panel" className="grid size-9 shrink-0 place-items-center rounded-lg border border-cyan-400/40 text-cyan-200 hover:bg-cyan-400/10"><span aria-hidden="true">—</span></button>

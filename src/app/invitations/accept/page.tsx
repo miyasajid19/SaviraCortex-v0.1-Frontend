@@ -103,7 +103,7 @@ export default function AcceptInvitationPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 px-5 py-12 text-white">
+    <main className="sc-invitation min-h-screen px-5 py-12 text-neutral-900">
       <div className="mx-auto max-w-xl">
         <Link href="/" className="text-xl font-bold"><span className="text-cyan-400">Savira</span>Cortex</Link>
         <section className="mt-10 rounded-3xl border border-slate-800 bg-slate-900 p-7 shadow-2xl sm:p-9">
