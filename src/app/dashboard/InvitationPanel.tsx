@@ -39,6 +39,8 @@ function apiErrorMessage(data: unknown, fallback: string): string {
 
 export default function InvitationPanel({ organization, token }: { organization: Organization; token: string }) {
   const [rows, setRows] = useState<Invitation[]>([]);
+  const [invitationPage, setInvitationPage] = useState(1);
+  const invitationsPerPage = 5;
   const [roles, setRoles] = useState<Choice[]>([]);
   const [departments, setDepartments] = useState<Choice[]>([]);
   const [email, setEmail] = useState("");
@@ -144,7 +146,7 @@ export default function InvitationPanel({ organization, token }: { organization:
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(apiErrorMessage(data, "Could not send the invitation."));
-      setRows((current) => [data, ...current]);
+      setRows((current) => [data, ...current]); setInvitationPage(1);
       setEmail(""); setCandidateName(""); setRole("member");
       setRoleIds([]); setDepartmentIds([]); setStep(1);
       setNotice(`Invitation email sent to ${data.email} with the selected roles and departments.`);
@@ -154,6 +156,10 @@ export default function InvitationPanel({ organization, token }: { organization:
       setSaving(false);
     }
   }
+
+  const invitationPageCount = Math.max(1, Math.ceil(rows.length / invitationsPerPage));
+  const currentInvitationPage = Math.min(invitationPage, invitationPageCount);
+  const paginatedInvitations = rows.slice((currentInvitationPage - 1) * invitationsPerPage, currentInvitationPage * invitationsPerPage)
 
   const canInviteAdmin = organization.role === "owner";
   const emailIsValid = email.trim().includes("@") && email.trim().split("@")[1]?.includes(".") === true && !email.trim().includes(" " );
@@ -268,7 +274,7 @@ export default function InvitationPanel({ organization, token }: { organization:
       <div className="mt-5 border-t border-slate-800 pt-4">
         <h4 className="text-sm font-semibold text-slate-200">Invitation mail log</h4>
         {loading ? <p className="mt-3 text-sm text-slate-500">Loading invitation history…</p> :
-          rows.length ? <ul className="mt-3 space-y-2">{rows.map((row) => (
+          rows.length ? <ul className="mt-3 space-y-2">{paginatedInvitations.map((row) => (
             <li key={row.id} className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0"><p className="text-sm font-medium text-slate-100">{row.candidate_name}</p><p className="mt-1 break-all text-xs text-slate-400">{row.email}</p></div>
@@ -277,6 +283,7 @@ export default function InvitationPanel({ organization, token }: { organization:
               <p className="mt-2 text-xs text-slate-500">Sent: {row.email_sent_at ? new Date(row.email_sent_at).toLocaleString() : "Not recorded"} · Expires: {new Date(row.expires_at).toLocaleString()}</p>
             </li>
           ))}</ul> : <p className="mt-3 text-sm text-slate-500">No invitations sent yet.</p>}
+        {!loading && rows.length > invitationsPerPage && <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-200 pt-3"><span className="text-xs text-slate-500">Showing {(invitationPage - 1) * invitationsPerPage + 1}–{Math.min(invitationPage * invitationsPerPage, rows.length)} of {rows.length}</span><div className="flex items-center gap-2"><button type="button" disabled={invitationPage === 1} onClick={() => setInvitationPage((page) => Math.max(1, page - 1))} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40">Previous</button><span className="text-xs tabular-nums text-slate-600">{invitationPage} / {invitationPageCount}</span><button type="button" disabled={invitationPage === invitationPageCount} onClick={() => setInvitationPage((page) => Math.min(invitationPageCount, page + 1))} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40">Next</button></div></div>}
         <button type="button" onClick={() => void load()} className="mt-3 text-xs text-cyan-300 hover:text-cyan-200">Refresh invitation log</button>
       </div>
     </section>

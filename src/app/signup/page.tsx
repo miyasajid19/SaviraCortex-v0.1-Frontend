@@ -1,18 +1,90 @@
 "use client";
-
-import { useEffect } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { createUserWithEmailAndPassword, GoogleAuthProvider, onAuthStateChanged, RecaptchaVerifier, sendEmailVerification, signInWithPhoneNumber, signInWithPopup, signOut, type ConfirmationResult, type User } from "firebase/auth";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import BrandLockup from "../../components/BrandLockup";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Mail01Icon, CallIcon, ShieldCheckIcon } from "@hugeicons/core-free-icons";
+import { auth, firebaseConfigError } from "../firebase";
 
-export default function SignupPage() {
-  const router = useRouter();
-
-  useEffect(() => {
-    router.replace("/register");
-  }, [router]);
-
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-white text-neutral-600">
-      Redirecting to the registration page…
-    </main>
-  );
+const API=(process.env.NEXT_PUBLIC_API_BASE_URL||"http://localhost:8000").replace(/\/$/,"");
+type Provider="email"|"google"|"phone";
+type Stage="identity"|"verify"|"wizard";
+function GoogleBrandIcon({size=18}:{size?:number}){return <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true"><path fill="#4285F4" d="M43.6 24.5c0-1.4-.1-2.8-.4-4.1H24v7.8h11a9.4 9.4 0 0 1-4.1 6.2v5.1h6.6c3.9-3.6 6.1-8.8 6.1-15Z"/><path fill="#34A853" d="M24 44c5.5 0 10.1-1.8 13.5-4.9l-6.6-5.1c-1.8 1.2-4.1 2-6.9 2-5.3 0-9.8-3.6-11.4-8.4H5.8v5.3A20 20 0 0 0 24 44Z"/><path fill="#FBBC05" d="M12.6 27.6a12 12 0 0 1 0-7.2v-5.3H5.8a20 20 0 0 0 0 17.8l6.8-5.3Z"/><path fill="#EA4335" d="M24 12c3 0 5.7 1 7.8 3.1l5.8-5.8C34.1 6 29.5 4 24 4A20 20 0 0 0 5.8 15.1l6.8 5.3C14.2 15.6 18.7 12 24 12Z"/></svg>; }
+function readableAuthError(error:unknown):string {
+ const code=(error as {code?:string})?.code;
+ if(code==="auth/billing-not-enabled")return "Firebase needs a linked Cloud Billing account to send real SMS codes. For testing, configure a test phone number in Firebase Authentication.";
+ if(code==="auth/invalid-phone-number")return "Enter a valid phone number in international format, for example +919876543210.";
+ if(code==="auth/too-many-requests")return "Firebase temporarily blocked requests from this device. Please wait before trying again.";
+ return (error as Error)?.message||"Authentication failed.";
+}
+export default function RegisterPage(){
+ const router=useRouter();
+ const [provider,setProvider]=useState<Provider>("email");
+ const [org,setOrg]=useState(""); const [name,setName]=useState("");
+ const [email,setEmail]=useState(""); const [password,setPassword]=useState(""); const [phone,setPhone]=useState(""); const [otp,setOtp]=useState("");
+ const [departments,setDepartments]=useState<{name:string;description:string}[]>([]); const [departmentDraft,setDepartmentDraft]=useState(""); const [departmentDescription,setDepartmentDescription]=useState("");
+ const [roles,setRoles]=useState<{name:string;description:string}[]>([]); const [roleDraft,setRoleDraft]=useState(""); const [roleDescription,setRoleDescription]=useState("");
+ const [wizardStep,setWizardStep]=useState<1|2|3>(1);
+ const [confirmation,setConfirmation]=useState<ConfirmationResult|null>(null);
+ const [user,setUser]=useState<User|null>(auth?.currentUser??null);
+ const [stage,setStage]=useState<Stage>("identity"); const [busy,setBusy]=useState(false); const [error,setError]=useState(firebaseConfigError); const [notice,setNotice]=useState("");
+ const recaptcha=useRef<RecaptchaVerifier|null>(null);
+ useEffect(()=>{if(!auth)return;const unsub=onAuthStateChanged(auth,u=>{setUser(u);if(u){if(u.email&&!u.emailVerified)setStage("verify");else setStage("wizard");}else setStage("identity");});return()=>{unsub();recaptcha.current?.clear();recaptcha.current=null;};},[]);
+ function verifier(){if(!auth)throw new Error(firebaseConfigError);if(!recaptcha.current)recaptcha.current=new RecaptchaVerifier(auth,"register-recaptcha",{size:"invisible"});return recaptcha.current;}
+ async function run(action:()=>Promise<void>){setBusy(true);setError("");setNotice("");try{await action();}catch(e){setError(readableAuthError(e));if(["auth/billing-not-enabled","auth/too-many-requests"].includes((e as {code?:string})?.code||"")){recaptcha.current?.clear();recaptcha.current=null;}}finally{setBusy(false);}}
+ async function emailSignup(e:FormEvent<HTMLFormElement>){e.preventDefault();await run(async()=>{if(!auth)throw new Error(firebaseConfigError);const c=await createUserWithEmailAndPassword(auth,email.trim(),password);await sendEmailVerification(c.user);setUser(c.user);setStage("verify");setNotice("Verification email sent.");});}
+ async function googleSignup(){await run(async()=>{if(!auth)throw new Error(firebaseConfigError);const c=await signInWithPopup(auth,new GoogleAuthProvider());setUser(c.user);setName(c.user.displayName||"");setEmail(c.user.email||"");setStage("wizard");});}
+ async function sendCode(){await run(async()=>{if(!auth)throw new Error(firebaseConfigError);setConfirmation(await signInWithPhoneNumber(auth,phone.trim(),verifier()));setNotice("SMS code sent.");});}
+ async function verifyCode(){await run(async()=>{if(!confirmation)throw new Error("Request an SMS code first.");const c=await confirmation.confirm(otp.trim());setUser(c.user);setStage("wizard");});}
+ function addName(kind:"department"|"role"){
+  const value=(kind==="department"?departmentDraft:roleDraft).trim();
+  const list=kind==="department"?departments:roles;
+  if(value.length<2){setError("Enter at least 2 characters.");return;}
+  if(list.some(item=>item.name.toLowerCase()===value.toLowerCase())){setError("That name has already been added.");return;}
+  if(kind==="department"){setDepartments(items=>[...items,{name:value,description:departmentDescription.trim()}]);setDepartmentDraft("");setDepartmentDescription("");}
+  else{setRoles(items=>[...items,{name:value,description:roleDescription.trim()}]);setRoleDraft("");setRoleDescription("");}
+  setError("");
+ }
+ async function finish(){await run(async()=>{
+  if(!auth?.currentUser)throw new Error("Firebase session is missing. Sign in again.");
+  if(org.trim().length<2||name.trim().length<2)throw new Error("Enter your organization name and your name.");
+  if(!departments.length)throw new Error("Add at least one department.");
+  if(!roles.length)throw new Error("Add at least one role.");
+  const current=auth.currentUser;await current.reload();
+  if(current.email&&!current.emailVerified){setStage("verify");throw new Error("Verify your email before continuing.");}
+  const token=await current.getIdToken(true);
+  const res=await fetch(API+"/api/v1/auth/organizations/signup",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify({organization_name:org.trim(),admin_name:name.trim(),departments,roles})});
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok)throw new Error(data.detail||`Signup failed (HTTP ${res.status}).`);
+  router.replace("/dashboard");
+ });}
+ const field="sc-input";
+ const stepTitles=["Organization identity","Departments","Organization roles"];
+ return <main className="sc-register sc-login min-h-screen text-white lg:grid lg:grid-cols-[1.08fr_0.92fr]">
+ <section className="sc-stage relative isolate flex min-h-[560px] flex-col overflow-hidden px-6 py-7 sm:px-10 lg:min-h-screen lg:px-[6vw] lg:py-9">
+  <div className="sc-grain" aria-hidden="true"/><div className="sc-aurora sc-aurora-one" aria-hidden="true"/><div className="sc-aurora sc-aurora-two" aria-hidden="true"/><div className="sc-orbit sc-orbit-a" aria-hidden="true"/><div className="sc-orbit sc-orbit-b" aria-hidden="true"/><div className="sc-orbit sc-orbit-c" aria-hidden="true"/>
+  <div className="relative z-10 flex items-center justify-between"><BrandLockup variant="light" /><span className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/[0.045] px-3 py-2 text-[10px] font-medium tracking-[0.16em] text-slate-300 sm:inline-flex"><span className="sc-live-dot"/> INTELLIGENCE, CONNECTED</span></div>
+  <div className="relative z-10 my-auto max-w-[570px] py-16 lg:py-10"><p className="sc-kicker"><span className="sc-kicker-line"/> YOUR TEAM&apos;S KNOWLEDGE, CONNECTED</p><h1 className="sc-display mt-7">One identity.<br/><span className="sc-gradient-text">Your workspace.</span></h1><p className="mt-7 max-w-[430px] text-[15px] leading-7 text-slate-300/75 sm:text-base">Set up your organization in three simple steps. Nothing is created until you review and submit the final step.</p>
+   <div className="sc-auth-benefits mt-9 grid grid-cols-3 divide-x divide-white/10"><div className="flex flex-col items-center gap-2 px-2 text-center"><span className="sc-benefit-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 3 19 6v5c0 4.5-3 7.8-7 10-4-2.2-7-5.5-7-10V6l7-3Z"/><path d="m9 12 2 2 4-4"/></svg></span><span>Secure &amp; Private</span></div><div className="flex flex-col items-center gap-2 px-2 text-center"><span className="sc-benefit-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m13 2-9 12h7l-1 8 10-13h-7l0-7Z"/></svg></span><span>Fast Setup</span></div><div className="flex flex-col items-center gap-2 px-2 text-center"><span className="sc-benefit-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 2.5-5 6-5s6 2 6 5M17 5a3 3 0 0 1 0 6M18 15c2 .5 3 2 3 4"/></svg></span><span>Collaborate Easily</span></div></div></div>
+  <div className="relative z-10 flex items-center justify-between border-t border-white/10 pt-5 text-[10px] tracking-[0.08em] text-slate-500"><span>© 2026 SaviraCortex</span><span>THINK CLEARER. MOVE FASTER.</span></div>
+ </section>
+ <section className="sc-auth-side relative flex min-h-screen flex-col px-5 py-6 sm:px-10 lg:px-12 xl:px-[6vw]"><header className="relative z-10 flex items-center justify-between"><BrandLockup variant="light" size="compact" className="lg:hidden" /><p className="ml-auto text-xs text-slate-400 sm:text-sm">Already registered? <Link href="/signin" className="font-semibold text-cyan-300 transition hover:text-white">Sign in ↗</Link></p></header><div className="relative z-10 mx-auto flex w-full max-w-[480px] flex-1 flex-col justify-center py-12"><div className="sc-register-card">
+ {stage==="wizard"&&<div className="mb-7 flex items-center gap-2">{[1,2,3].map(n=><div key={n} className="flex flex-1 items-center gap-2"><div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-sm font-semibold ${wizardStep===n?"border-cyan-300 text-cyan-300":wizardStep>n?"border-cyan-400 bg-cyan-400 text-slate-950":"border-slate-700 text-slate-500"}`}>{wizardStep>n?"✓":n}</div><span className={`hidden text-xs sm:inline ${wizardStep===n?"text-white":"text-slate-500"}`}>{["Organization","Departments","Roles"][n-1]}</span>{n<3&&<div className="h-px flex-1 bg-slate-800"/>}</div>)}</div>}
+ <h2 className="text-2xl font-semibold">{stage==="wizard"?`Step ${wizardStep} of 3 · ${stepTitles[wizardStep-1]}`:stage==="verify"?"Verify your email":"Create your account"}</h2>
+ {stage==="identity"&&<><div className="sc-provider-tabs mt-6 grid grid-cols-3 gap-2">{(["email","google","phone"] as Provider[]).map(p=><button key={p} type="button" role="tab" aria-selected={provider===p} onClick={()=>{setProvider(p);setError("");}} className={`sc-provider-tab ${provider===p?"is-active":""}`}>{p==="email"?<HugeiconsIcon icon={Mail01Icon} size={17}/>:p==="google"?<GoogleBrandIcon size={17}/>:<HugeiconsIcon icon={CallIcon} size={17}/>}<span>{p==="email"?"Email":p==="google"?"Google":"Phone"}</span></button>)}</div>
+ {provider==="email"&&<form onSubmit={emailSignup} className="mt-6 space-y-4"><input required type="email" placeholder="Email address" value={email} onChange={e=>setEmail(e.target.value)} className={field}/><input required minLength={6} type="password" placeholder="Password (min 6 characters)" value={password} onChange={e=>setPassword(e.target.value)} className={field}/><button disabled={busy||!auth} className="w-full rounded-xl bg-cyan-400 p-3 font-semibold text-slate-950">Create account & verify email</button></form>}
+ {provider==="google"&&<button disabled={busy||!auth} onClick={googleSignup} className="sc-submit sc-submit-secondary mt-6"><span className="flex items-center gap-3"><GoogleBrandIcon size={18}/>{busy?"Connecting…":"Continue with Google"}</span><span aria-hidden="true">↗</span></button>}
+ {provider==="phone"&&<div className="mt-6 space-y-4"><input type="tel" placeholder="Phone, e.g. +919876543210" value={phone} onChange={e=>setPhone(e.target.value)} className={field}/>{!confirmation?<button disabled={busy||!phone.trim()} onClick={sendCode} className="w-full rounded-xl bg-cyan-400 p-3 font-semibold text-slate-950">Send SMS code</button>:<><input inputMode="numeric" placeholder="SMS verification code" value={otp} onChange={e=>setOtp(e.target.value)} className={field}/><button disabled={busy||!otp.trim()} onClick={verifyCode} className="w-full rounded-xl bg-cyan-400 p-3 font-semibold text-slate-950">Verify phone</button></>}</div>}<div id="register-recaptcha"/></>}
+ {stage==="verify"&&<div className="mt-5 space-y-4"><p className="text-sm text-slate-400">We sent a verification link to <strong className="text-white">{user?.email}</strong>.</p><button disabled={busy} onClick={()=>run(async()=>{if(!auth?.currentUser)throw new Error("No signed-in user.");await auth.currentUser.reload();if(!auth.currentUser.emailVerified)throw new Error("Email is not verified yet.");setStage("wizard");})} className="w-full rounded-xl bg-cyan-400 p-3 font-semibold text-slate-950">I verified my email</button><button disabled={busy} onClick={()=>run(async()=>{if(!auth?.currentUser)throw new Error("No signed-in user.");await sendEmailVerification(auth.currentUser);setNotice("Verification email resent.");})} className="w-full rounded-xl border border-slate-700 p-3">Resend verification email</button></div>}
+ {stage==="wizard"&&<div className="mt-5 space-y-4">
+ {wizardStep===1&&<><p className="text-sm leading-6 text-slate-400">Tell us who you are and what your workspace is called.</p><input required minLength={2} placeholder="Organization name" value={org} onChange={e=>setOrg(e.target.value)} className={field}/><input required minLength={2} placeholder="Your name / username" value={name} onChange={e=>setName(e.target.value)} className={field}/></>}
+ {wizardStep===2&&<><p className="text-sm leading-6 text-slate-400">Add the departments in your company, such as Engineering, HR, Finance, or Sales.</p><div className="space-y-2"><input value={departmentDraft} onChange={e=>setDepartmentDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addName("department");}}} placeholder="Department name" className={field}/><textarea value={departmentDescription} onChange={e=>setDepartmentDescription(e.target.value)} placeholder="Department description (optional)" rows={2} className={field}/><button onClick={()=>addName("department")} className="rounded-xl bg-cyan-400 px-4 py-3 font-semibold text-slate-950">Add department</button></div><div className="space-y-2">{departments.map(item=><div key={item.name} className="flex items-center justify-between rounded-xl border border-slate-800 px-4 py-3 text-sm"><span>{item.name}{item.description&&<span className="block text-xs text-slate-500">{item.description}</span>}</span><button onClick={()=>setDepartments(xs=>xs.filter(x=>x.name!==item.name))} className="text-slate-500 hover:text-rose-300">Remove</button></div>)}</div></>}
+ {wizardStep===3&&<><p className="text-sm leading-6 text-slate-400">Define the roles people can have in your organization, such as Manager, Developer, or Team Lead.</p><div className="space-y-2"><input value={roleDraft} onChange={e=>setRoleDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addName("role");}}} placeholder="Role name" className={field}/><textarea value={roleDescription} onChange={e=>setRoleDescription(e.target.value)} placeholder="Role description (optional)" rows={2} className={field}/><button onClick={()=>addName("role")} className="rounded-xl bg-cyan-400 px-4 py-3 font-semibold text-slate-950">Add role</button></div><div className="space-y-2">{roles.map(item=><div key={item.name} className="flex items-center justify-between rounded-xl border border-slate-800 px-4 py-3 text-sm"><span>{item.name}{item.description&&<span className="block text-xs text-slate-500">{item.description}</span>}</span><button onClick={()=>setRoles(xs=>xs.filter(x=>x.name!==item.name))} className="text-slate-500 hover:text-rose-300">Remove</button></div>)}</div><div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400"><p className="font-medium text-white">Ready to create {org||"your organization"}?</p><p className="mt-1">{departments.length} department(s) · {roles.length} role(s)</p><p className="mt-2 text-xs">Your organization and setup records will be saved together when you submit.</p></div></>}
+ <div className="grid grid-cols-2 gap-3 pt-3">{wizardStep>1?<button onClick={()=>setWizardStep(s=>(s-1) as 1|2|3)} className="rounded-xl border border-slate-700 p-3.5 text-slate-300">← Back</button>:<button onClick={()=>run(async()=>{if(auth)await signOut(auth);})} className="rounded-xl border border-slate-700 p-3.5 text-slate-300">Cancel</button>}{wizardStep<3?<button disabled={wizardStep===1?(org.trim().length<2||name.trim().length<2):departments.length===0} onClick={()=>setWizardStep(s=>(s+1) as 1|2|3)} className="rounded-xl bg-cyan-400 p-3.5 font-semibold text-slate-950 disabled:opacity-40">Continue →</button>:<button disabled={busy||roles.length===0||!org.trim()||!name.trim()} onClick={()=>void finish()} className="rounded-xl bg-cyan-400 p-3.5 font-semibold text-slate-950 disabled:opacity-40">{busy?"Creating…":"Create organization"}</button>}</div>
+ </div>}
+ {notice&&<p role="status" className="mt-4 text-sm text-emerald-300">{notice}</p>}{error&&<p role="alert" className="mt-4 rounded-xl border border-rose-400/30 bg-rose-400/10 p-3 text-sm text-rose-200">{error}</p>}
+ {stage!=="identity"&&<button onClick={()=>run(async()=>{if(auth)await signOut(auth);setConfirmation(null);})} className="mt-5 w-full text-sm text-slate-500 underline">Cancel and sign out</button>}
+ <div className="mt-6 flex items-center gap-2 border-t border-white/[0.08] pt-5 text-[11px] text-slate-500"><HugeiconsIcon icon={ShieldCheckIcon} size={15} className="text-cyan-300"/><span>Your credentials are securely handled by Firebase.</span></div><p className="mt-4 text-center text-xs text-slate-500">Your organization is only registered after the final submission.</p></div></div><footer className="relative z-10 flex justify-center pb-2 text-[10px] tracking-[0.08em] text-slate-600 lg:justify-end">© 2026 SaviraCortex</footer></section></main>;
 }

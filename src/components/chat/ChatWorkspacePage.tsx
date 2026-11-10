@@ -6,7 +6,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport, type UIMessage } from "ai";
 import { auth, firebaseConfigError } from "../../app/firebase";
 
 const API = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -56,7 +58,17 @@ type ChatMessage = {
   error?: string;
   guardrailDecision?: "blocked" | "redirected" | "redacted";
   guardrailCategories?: string[];
+  conversationId?: string;
 };
+
+type SaviraMessageMetadata = Omit<ChatMessage, "id" | "role" | "content">;
+type SaviraDataParts = {
+  status: { stage: string; message: string };
+  piiConsent: PIIConsentChallenge;
+  generationError: { code?: string; message: string; conversationId?: string; userMessageId?: string };
+  userMessageUpdate: { messageId: string; content: string; guardrailDecision?: "redacted" };
+};
+type SaviraUIMessage = UIMessage<SaviraMessageMetadata, SaviraDataParts>;
 
 type ConversationSummary = {
   conversation_id: string;
@@ -119,6 +131,28 @@ function makeId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function toSaviraUIMessage(message: ChatMessage): SaviraUIMessage {
+  const { id, role, content, ...metadata } = message;
+  return {
+    id,
+    role,
+    parts: content ? [{ type: "text", text: content }] : [],
+    metadata,
+  } as SaviraUIMessage;
+}
+
+function fromSaviraUIMessage(message: SaviraUIMessage): ChatMessage {
+  const content = message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("");
+  return {
+    ...(message.metadata || {}),
+    id: message.id,
+    role: message.role as ChatMessage["role"],
+    content,
+  };
+}
 
 function linkCitationMarkers(markdown: string): string {
   const referencesHeading = /^## References\s*$/im.exec(markdown);
@@ -136,11 +170,22 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
   const scrollAnchor = useRef<HTMLDivElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const suppressAutoScroll = useRef(false);
-  const abortController = useRef<AbortController | null>(null);
   const pdfRequestId = useRef(0);
+  const routeConversationIdRef = useRef(routeConversationId);
+  routeConversationIdRef.current = routeConversationId;
+  const refreshConversationListRef = useRef<() => void>(() => {});
+  const pendingRequestRef = useRef<{
+    requestId: string;
+    userMessageId: string;
+    assistantMessageId: string;
+    query: string;
+    piiAction?: "redact" | "send_as_is";
+    consentRequired?: boolean;
+    failed?: boolean;
+  } | null>(null);
+  const sdkSetMessagesRef = useRef<((value: SaviraUIMessage[] | ((current: SaviraUIMessage[]) => SaviraUIMessage[])) => void) | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationSearch, setConversationSearch] = useState("");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -150,13 +195,130 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [draft, setDraft] = useState("");
   const [loadingProfile, setLoadingProfile] = useState(Boolean(auth));
-  const [sending, setSending] = useState(false);
   const [streamingStage, setStreamingStage] = useState("");
   const [error, setError] = useState(firebaseConfigError);
   const [piiConsent, setPiiConsent] = useState<PIIConsentChallenge | null>(null);
   const [pdfViewer, setPdfViewer] = useState<{ url: string; title: string; page: number | null } | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfLoadingTitle, setPdfLoadingTitle] = useState("Source document");
+
+  const chatTransport = useMemo(() => new DefaultChatTransport<SaviraUIMessage>({
+    api: "/api/chat",
+    headers: async () => {
+      const currentUser = auth?.currentUser;
+      if (!currentUser) throw new Error("Your session has expired. Please sign in again.");
+      return { Authorization: `Bearer ${await currentUser.getIdToken()}` };
+    },
+    prepareSendMessagesRequest: ({ messages: sdkMessages }) => {
+      const lastUserMessage = [...sdkMessages].reverse().find((message) => message.role === "user");
+      const messageText = lastUserMessage?.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("") || "";
+      const pending = pendingRequestRef.current;
+      const requestId = pending?.requestId || crypto.randomUUID();
+      const assistantMessageId = pending?.assistantMessageId || makeId();
+      const userMessageId = lastUserMessage?.id || pending?.userMessageId || "";
+      if (pending && userMessageId) pending.userMessageId = userMessageId;
+      return {
+        body: {
+          organization_id: selectedOrganizationId,
+          conversation_id: routeConversationId,
+          query: pending?.query || messageText,
+          request_id: requestId,
+          assistant_message_id: assistantMessageId,
+          user_message_id: userMessageId,
+          ...(pending?.piiAction ? { pii_action: pending.piiAction } : {}),
+        },
+      };
+    },
+  }), [selectedOrganizationId, routeConversationId]);
+
+  const {
+    messages: sdkMessages,
+    setMessages: setSdkMessages,
+    sendMessage: sendSdkMessage,
+    stop: stopSdkGeneration,
+    status: chatStatus,
+  } = useChat<SaviraUIMessage>({
+    transport: chatTransport,
+    onData: (part) => {
+      if (part.type === "data-status") {
+        setStreamingStage(part.data.message);
+      } else if (part.type === "data-piiConsent") {
+        const pending = pendingRequestRef.current;
+        if (pending) pending.consentRequired = true;
+        const challenge = part.data;
+        setPiiConsent({
+          ...challenge,
+          query: pending?.query || challenge.query,
+          requestId: pending?.requestId || challenge.requestId,
+          userMessageId: pending?.userMessageId || challenge.userMessageId,
+        });
+        const assistantMessageId = pending?.assistantMessageId;
+        if (assistantMessageId) {
+          sdkSetMessagesRef.current?.((current) => current.filter((message) => message.id !== assistantMessageId));
+        }
+      } else if (part.type === "data-generationError") {
+        if (pendingRequestRef.current) pendingRequestRef.current.failed = true;
+        setError(part.data.message);
+        if (part.data.conversationId && !routeConversationIdRef.current) {
+          router.replace("/chat/" + part.data.conversationId);
+        }
+        sdkSetMessagesRef.current?.((current) => current
+          .filter((message) => message.id !== pendingRequestRef.current?.assistantMessageId)
+          .map((message) => message.id === (part.data.userMessageId || pendingRequestRef.current?.userMessageId)
+            ? { ...message, metadata: { ...message.metadata, error: part.data.message } }
+            : message));
+      } else if (part.type === "data-userMessageUpdate") {
+        sdkSetMessagesRef.current?.((current) => current.map((message) => message.id === part.data.messageId
+          ? {
+              ...message,
+              parts: part.data.content ? [{ type: "text", text: part.data.content }] : [],
+              metadata: { ...message.metadata, guardrailDecision: part.data.guardrailDecision },
+            }
+          : message));
+      }
+    },
+    onError: (chatError) => {
+      setError(chatError.message || "Something went wrong. Please try again.");
+      const pending = pendingRequestRef.current;
+      if (pending) {
+        pending.failed = true;
+        sdkSetMessagesRef.current?.((current) => current
+          .filter((message) => message.id !== pending.assistantMessageId)
+          .map((message) => message.id === pending.userMessageId
+            ? { ...message, metadata: { ...message.metadata, error: chatError.message } }
+            : message));
+        pendingRequestRef.current = null;
+      }
+    },
+    onFinish: ({ message }) => {
+      setStreamingStage("");
+      const pending = pendingRequestRef.current;
+      if (pending?.consentRequired || pending?.failed) {
+        sdkSetMessagesRef.current?.((current) => current.filter((item) => item.id !== pending.assistantMessageId));
+      }
+      const conversationId = message.metadata?.conversationId;
+      if (conversationId && !routeConversationIdRef.current) router.replace("/chat/" + conversationId);
+      if (!pendingRequestRef.current?.consentRequired) pendingRequestRef.current = null;
+      refreshConversationListRef.current();
+      window.setTimeout(() => refreshConversationListRef.current(), 3000);
+    },
+  });
+  sdkSetMessagesRef.current = setSdkMessages;
+  refreshConversationListRef.current = refreshConversationList;
+
+  const messages = useMemo(() => sdkMessages.map(fromSaviraUIMessage), [sdkMessages]);
+  const sending = chatStatus === "submitted" || chatStatus === "streaming";
+
+  const setMessages = useCallback((update: ChatMessage[] | ((current: ChatMessage[]) => ChatMessage[])) => {
+    setSdkMessages((current) => {
+      const currentMessages = current.map(fromSaviraUIMessage);
+      const nextMessages = typeof update === "function" ? update(currentMessages) : update;
+      return nextMessages.map(toSaviraUIMessage);
+    });
+  }, [setSdkMessages]);
 
   useEffect(() => {
     if (!auth) return;
@@ -207,8 +369,6 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
       unsubscribe();
     };
   }, [router]);
-
-  useEffect(() => () => abortController.current?.abort(), []);
 
   useEffect(() => {
     if (!pdfViewer) return;
@@ -295,7 +455,7 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
     };
     void loadConversation();
     return () => { active = false; };
-  }, [routeConversationId, selectedOrganizationId]);
+  }, [routeConversationId, selectedOrganizationId, setMessages]);
 
   const selectedOrganization = profile?.organizations.find(
     (organization) => organization.organization_id === selectedOrganizationId,
@@ -306,7 +466,8 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
 
   function startNewChat() {
     if (sending) return;
-    abortController.current?.abort();
+    void stopSdkGeneration();
+    pendingRequestRef.current = null;
     setMessages([]);
     setHistoryOffset(0);
     setHasOlderMessages(false);
@@ -323,141 +484,41 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
     event?.preventDefault();
     const query = retry?.query || draft.trim();
     if (!query || sending || !selectedOrganizationId) return;
-    const currentUser = auth?.currentUser;
-    if (!currentUser) { router.replace("/login"); return; }
+    if (!auth?.currentUser) {
+      router.replace("/login");
+      return;
+    }
 
     const requestId = retry?.requestId || crypto.randomUUID();
-    const userMessage: ChatMessage = { id: retry?.userMessageId || makeId(), role: "user", content: query };
-    const assistantId = makeId();
-    const controller = new AbortController();
-    abortController.current = controller;
-    setMessages((current) => retry
-      ? [...current, { id: assistantId, role: "assistant", content: "", citations: [] }]
-      : [...current, userMessage, { id: assistantId, role: "assistant", content: "", citations: [] }]);
+    const userMessageId = retry?.userMessageId || makeId();
+    const assistantMessageId = makeId();
+    pendingRequestRef.current = {
+      requestId,
+      userMessageId,
+      assistantMessageId,
+      query,
+      piiAction,
+      consentRequired: false,
+    };
+    // A consent retry replaces the original unapproved user message instead of
+    // adding a duplicate. The SDK creates and owns the replacement message ID.
+    if (retry) {
+      setSdkMessages((current) => current.filter((message) => message.id !== retry.userMessageId));
+    }
     setDraft("");
     setError("");
     setStreamingStage("Connecting to SaviraCortex…");
-    setSending(true);
 
     try {
-      const token = await currentUser.getIdToken();
-      const response = await fetch(
-        API + "/api/v1/organizations/" + selectedOrganizationId + "/generation/stream",
-        {
-          method: "POST",
-          headers: { Authorization: "Bearer " + token, "Content-Type": "application/json", Accept: "text/event-stream" },
-          body: JSON.stringify({
-            query,
-            conversation_id: routeConversationId,
-            request_id: requestId,
-            ...(piiAction ? { pii_action: piiAction } : {}),
-          }),
-          signal: controller.signal,
-          cache: "no-store",
-        },
-      );
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.detail?.message || data.detail || "Generation failed (HTTP " + response.status + ").");
-      }
-      if (!response.body) throw new Error("The server did not open a response stream.");
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let completed = false;
-      let consentRequired = false;
-
-      const processFrame = (frame: string) => {
-        if (!frame.trim()) return;
-        let eventName = "message";
-        const dataLines: string[] = [];
-        for (const line of frame.split(/\r?\n/)) {
-          if (line.startsWith("event:")) eventName = line.slice(6).trim();
-          else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
-        }
-        if (!dataLines.length) return;
-        const payload = JSON.parse(dataLines.join("\n")) as Record<string, unknown>;
-        if (eventName === "status") {
-          setStreamingStage(String(payload.message || "Preparing your answer…"));
-        } else if (eventName === "delta") {
-          const delta = typeof payload.delta === "string" ? payload.delta : "";
-          if (delta) setMessages((current) => current.map((message) =>
-            message.id === assistantId ? { ...message, content: message.content + delta } : message));
-          setStreamingStage("Checking and writing answer…");
-        } else if (eventName === "completed") {
-          const result = payload.result as GenerationPayload | undefined;
-          if (!result) throw new Error("The server completed without a validated answer.");
-          completed = true;
-          void refreshConversationList();
-          window.setTimeout(() => void refreshConversationList(), 3000);
-          if (result.conversation_id && !routeConversationId) router.replace("/chat/" + result.conversation_id);
-          setMessages((current) => current.map((message) => {
-            if (message.id === userMessage.id) {
-              return {
-                ...message,
-                content: result.query || message.content,
-                guardrailDecision: result.query && result.query !== query ? "redacted" : message.guardrailDecision,
-              };
-            }
-            if (message.id === assistantId) {
-              return {
-                ...message, content: result.answer, generationId: result.generation_id || undefined,
-                status: result.status, citations: result.citations || [],
-                warnings: result.warnings || [], missingInformation: result.missing_information || [],
-                guardrailDecision: result.guardrail_decision || undefined,
-                guardrailCategories: result.guardrail_categories || [],
-              };
-            }
-            return message;
-          }));
-          setStreamingStage("");
-        } else if (eventName === "error") {
-          if (payload.code === "pii_consent_required") {
-            consentRequired = true;
-            setMessages((current) => current.filter((message) => message.id !== assistantId));
-            setPiiConsent({
-              query, requestId, userMessageId: userMessage.id,
-              redactedPreview: String(payload.redacted_preview || ""),
-              entities: Array.isArray(payload.entities) ? payload.entities.map(String) : [],
-              allowedActions: Array.isArray(payload.allowed_actions)
-                ? payload.allowed_actions.filter((item): item is "redact" | "send_as_is" | "reject" =>
-                    item === "redact" || item === "send_as_is" || item === "reject")
-                : ["redact", "reject"],
-            });
-            return;
-          }
-          if (typeof payload.conversation_id === "string" && !routeConversationId) {
-            router.replace("/chat/" + payload.conversation_id);
-            void refreshConversationList();
-          }
-          throw new Error(String(payload.message || "Generation failed. Please retry."));
-        }
-      };
-
-      while (true) {
-        const { value, done } = await reader.read();
-        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-        const frames = buffer.split(/\r?\n\r?\n/);
-        buffer = frames.pop() || "";
-        for (const frame of frames) processFrame(frame);
-        if (done) break;
-      }
-      if (buffer.trim()) processFrame(buffer);
-      if (!completed && !consentRequired) {
-        throw new Error("The response stream ended before final guardrail and citation validation completed.");
-      }
+      await sendSdkMessage({ text: query });
     } catch (err) {
-      const aborted = err instanceof DOMException && err.name === "AbortError";
-      setMessages((current) => current.filter((message) => message.id !== assistantId));
-      if (!aborted) {
-        const messageError = (err as Error).message || "Something went wrong. Please try again.";
-        setMessages((current) => current.map((message) =>
-          message.id === userMessage.id ? { ...message, error: messageError } : message));
-      }
-    } finally {
-      abortController.current = null;
-      setSending(false);
+      const messageError = (err as Error).message || "Something went wrong. Please try again.";
+      setError(messageError);
+      const activeUserMessageId = pendingRequestRef.current?.userMessageId || userMessageId;
+      setMessages((current) => current
+        .filter((message) => message.id !== assistantMessageId)
+        .map((message) => message.id === activeUserMessageId ? { ...message, error: messageError } : message));
+      pendingRequestRef.current = null;
       setStreamingStage("");
     }
   }
@@ -468,10 +529,7 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
     setPiiConsent(null);
     if (action === "reject") {
       setMessages((current) => current.filter((message) => message.id !== pending.userMessageId));
-      setMessages((current) => current.map((message) =>
-        message.id === pending.userMessageId
-          ? { ...message, error: "Request cancelled. The original message was not sent to the assistant." }
-          : message));
+      pendingRequestRef.current = null;
       return;
     }
     void sendMessage(undefined, action, pending);
@@ -672,12 +730,17 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
     }
   }
 
-  function stopGeneration() {
-    abortController.current?.abort();
+  async function stopGeneration() {
+    const pending = pendingRequestRef.current;
+    await stopSdkGeneration();
+    if (pending) setMessages((current) => current.filter((message) => message.id !== pending.assistantMessageId));
+    pendingRequestRef.current = null;
+    setStreamingStage("");
   }
 
   function changeOrganization(value: string) {
-    abortController.current?.abort();
+    void stopSdkGeneration();
+    pendingRequestRef.current = null;
     setSelectedOrganizationId(value);
     window.localStorage.setItem("savira.selectedOrganizationId", value);
     setMessages([]);
