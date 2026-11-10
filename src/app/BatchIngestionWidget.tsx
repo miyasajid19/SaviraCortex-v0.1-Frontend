@@ -1,6 +1,6 @@
-﻿"use client";
+"use client";
 
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "./firebase";
 
 type Organization = { organization_id: string; organization_name: string };
@@ -23,6 +23,7 @@ type Analysis = {
   matching_classification: string;
   matching_candidates: Array<{ document_id?: string | null; version_id?: string | null; title: string; version_number?: number | null; similarity_score: number | null; matched_by?: string | null; batch_item_id?: number | null; original_filename?: string | null; batch_ingestion_session_id?: string | null; identity_match_reasons?: string[] }>;
   validation_warnings: string[];
+  security_review?: { status: string; detected: boolean; findings: Array<{ chunk_index: number; page_number: number | null; category: string; severity: string; confidence: number; reason: string }>; flagged_chunk_indexes: number[]; decision?: string | null };
 };
 type BatchItem = {
   item_id: number;
@@ -47,6 +48,8 @@ const MAX_FILE_SIZE = 25 * 1024 * 1024;
 const MAX_BATCH_SIZE = 250 * 1024 * 1024;
 type FinalizeAction = "new" | "independent" | "supersede" | "delete_and_ingest" | "reject";
 type BatchAction = "review" | "independent" | "supersede" | "delete_and_ingest" | "reject";
+type SecurityAction = "reject" | "ingest_safely" | "ingest_anyway";
+type SecurityReviewEntry = { item: BatchItem; strategy: BatchAction };
 
 function messageFrom(data: unknown, fallback: string) {
   return data && typeof data === "object" && "detail" in data && typeof data.detail === "string" ? data.detail : fallback;
@@ -55,7 +58,7 @@ function messageFrom(data: unknown, fallback: string) {
 function stageProgress(stage: string, state: string) {
   const stages: Record<string, [number, number]> = {
     validate_pdf: [3, 8], hash_pdf: [8, 14], parse_pdf: [14, 38],
-    sample_content: [38, 46], summarize: [46, 72], prepare_embedding: [72, 82],
+    sample_content: [38, 44], security_inspection: [44, 60], summarize: [60, 72], prepare_embedding: [72, 82],
     duplicate_check: [82, 90], store_original: [90, 96],
   };
   const range = stages[stage] || [5, 85];
@@ -79,6 +82,7 @@ export default function BatchIngestionWidget() {
   const [documentType, setDocumentType] = useState("General document");
   const [description, setDescription] = useState("");
   const [targetDocumentId, setTargetDocumentId] = useState("");
+  const [securityAction, setSecurityAction] = useState<SecurityAction | null>(null);
   const [archived, setArchived] = useState(false);
   const [saving, setSaving] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
@@ -95,7 +99,17 @@ export default function BatchIngestionWidget() {
   const [confirmDeleteBatch, setConfirmDeleteBatch] = useState(false);
   const [confirmSingleDelete, setConfirmSingleDelete] = useState(false);
   const [accessLoading, setAccessLoading] = useState(false);
+  const [securityReviewQueue, setSecurityReviewQueue] = useState<SecurityReviewEntry[]>([]);
+  const [securityReviewSaving, setSecurityReviewSaving] = useState(false);
+  const [securityReviewError, setSecurityReviewError] = useState("");
+  const [showSecurityFindings, setShowSecurityFindings] = useState(false);
   const autoReviewOpened = useRef(false);
+  const batchResultsRef = useRef<BatchItem[]>([]);
+  const queuedSecurityItems = useRef<Set<number>>(new Set());
+  const resolvedSecurityItems = useRef<Set<number>>(new Set());
+  const securityDialogRef = useRef<HTMLElement | null>(null);
+  const securitySkipButtonRef = useRef<HTMLButtonElement | null>(null);
+  const securityFocusReturnRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const onOpen = (event: Event) => {
@@ -106,6 +120,11 @@ export default function BatchIngestionWidget() {
       setStep(1);
       setFiles([]);
       setItems([]);
+      setSecurityReviewQueue([]);
+      securityFocusReturnRef.current = null;
+      queuedSecurityItems.current.clear();
+      resolvedSecurityItems.current.clear();
+      batchResultsRef.current = [];
       const preferenceKey = "savira:document-access:" + detail.organization.organization_id + ":" + detail.uploaderId;
       try {
         const saved = window.localStorage.getItem(preferenceKey);
@@ -176,6 +195,71 @@ export default function BatchIngestionWidget() {
   }, [context]);
 
   const selectedItem = useMemo(() => items.find((item) => item.item_id === selectedId) ?? null, [items, selectedId]);
+  const activeSecurityReview = selectedId === null ? securityReviewQueue[0] ?? null : null;
+
+  function queueSecurityReview(item: BatchItem, strategy: BatchAction) {
+    if (!item.analysis?.security_review?.detected || queuedSecurityItems.current.has(item.item_id) || resolvedSecurityItems.current.has(item.item_id)) return;
+    queuedSecurityItems.current.add(item.item_id);
+    if (!securityFocusReturnRef.current && document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+      securityFocusReturnRef.current = document.activeElement;
+    }
+    setSecurityReviewError("");
+    setShowSecurityFindings(false);
+    setSecurityReviewQueue((current) => [...current, { item, strategy }]);
+    setIsOpen(true);
+  }
+
+  const skipSecurityReview = useCallback(() => {
+    const current = securityReviewQueue[0];
+    if (!current) return;
+    resolvedSecurityItems.current.add(current.item.item_id);
+    const updated = { ...current.item, message: "Security review skipped — open Review to decide before ingesting." };
+    const batch = batchResultsRef.current;
+    const index = batch.findIndex((item) => item.item_id === current.item.item_id);
+    if (index >= 0) batch[index] = updated;
+    setItems((itemsNow) => itemsNow.map((item) => item.item_id === updated.item_id ? updated : item));
+    setSecurityReviewError("");
+    setSecurityReviewQueue((queue) => queue.slice(1));
+  }, [securityReviewQueue]);
+  useEffect(() => {
+    if (!activeSecurityReview) return;
+    securitySkipButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (!securityReviewSaving) skipSecurityReview();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = securityDialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [activeSecurityReview, securityReviewSaving, skipSecurityReview]);
+
+  useEffect(() => {
+    if (activeSecurityReview || securityReviewQueue.length > 0 || selectedId !== null) return;
+    const target = securityFocusReturnRef.current;
+    securityFocusReturnRef.current = null;
+    if (target?.isConnected && !("disabled" in target && target.disabled)) {
+      target.focus();
+    } else {
+      document.getElementById("batch-ingestion-title")?.focus();
+    }
+  }, [activeSecurityReview, securityReviewQueue.length, selectedId]);
+
   const completedCount = items.filter((item) => ["duplicate", "indexed", "rejected"].includes(item.status)).length;
   const reviewCount = items.filter((item) => item.status === "ready_for_review").length;
   const activeCount = items.filter((item) => item.status === "processing" || item.status === "queued").length;
@@ -243,6 +327,7 @@ export default function BatchIngestionWidget() {
     action: FinalizeAction,
     targetId?: string,
     metadata?: { title?: string; documentType?: string; description?: string; archived?: boolean },
+    securityAction?: SecurityAction,
   ) {
     if (!context || !item.analysis?.ingestion_session_id) throw new Error("This upload is no longer available to finalize.");
     const analysis = item.analysis;
@@ -253,6 +338,7 @@ export default function BatchIngestionWidget() {
       headers: { Authorization: "Bearer " + bearer, "Content-Type": "application/json" },
       body: JSON.stringify({
         action,
+        ...(securityAction ? { security_action: securityAction } : {}),
         title: metadata?.title?.trim() || analysis.title || item.filename,
         document_type: metadata?.documentType?.trim() || analysis.document_type || "General document",
         description: metadata?.description?.trim() || analysis.description || analysis.summary || (action === "reject" ? "Rejected during batch processing." : "Uploaded document."),
@@ -281,6 +367,12 @@ export default function BatchIngestionWidget() {
     for (let index = 0; index < working.length; index += 1) {
       const item = working[index];
       if (item.status !== "ready_for_review" || !item.analysis?.ingestion_session_id) continue;
+      if (item.analysis.security_review?.detected) {
+        queueSecurityReview(item, strategy);
+        working[index] = { ...item, message: "Prompt injection detected — waiting for your security decision." };
+        setItems([...working]);
+        continue;
+      }
       const candidates = item.analysis.matching_candidates || [];
       const hasMatch = item.analysis.matching_classification !== "no_match" || candidates.length > 0;
       const target = candidates.find((candidate) => Boolean(candidate.document_id));
@@ -354,6 +446,11 @@ export default function BatchIngestionWidget() {
     setConfirmDeleteBatch(false);
     setStep(2);
     const batchResults: BatchItem[] = files.map((file, index) => ({ item_id: index, filename: file.name, status: "queued" }));
+    batchResultsRef.current = batchResults;
+    queuedSecurityItems.current.clear();
+    resolvedSecurityItems.current.clear();
+    setSecurityReviewQueue([]);
+    setSecurityReviewError("");
     setItems(batchResults);
     setBatchTotal(files.length);
     setIsRunning(true);
@@ -417,15 +514,15 @@ export default function BatchIngestionWidget() {
           if (strategy !== "review" && analysis?.ingestion_session_id && event.data.status === "ready_for_review") {
             await finalizeBatchAutomatically(batchResults, strategy);
           }
-          if (strategy === "review" && analysis && analysis.ingestion_session_id && analysis.matching_classification !== "no_match" && !autoReviewOpened.current) {
-            autoReviewOpened.current = true;
-            setSelectedId(event.data.item_id);
-            setTitle(analysis.title || event.data.filename.replace(/\.pdf$/i, ""));
-            setDocumentType(analysis.document_type || "General document");
-            setDescription(analysis.description || analysis.summary || "");
-            setTargetDocumentId(context?.targetDocumentId || analysis.matching_candidates.find((candidate) => candidate.document_id)?.document_id || "");
-            setArchived(false);
-            setError("");
+          if (strategy === "review" && analysis && analysis.ingestion_session_id) {
+            const completedItem = batchResults[event.data.item_id];
+            if (analysis.security_review?.detected) {
+              autoReviewOpened.current = true;
+              queueSecurityReview(completedItem, strategy);
+            } else if (analysis.matching_classification !== "no_match" && !autoReviewOpened.current) {
+              autoReviewOpened.current = true;
+              openReview(completedItem);
+            }
           }
         } else if (event.type === "completed") {
           setBatchTotal(event.total);
@@ -462,6 +559,115 @@ export default function BatchIngestionWidget() {
     }
   }
 
+  async function resolveSecurityReview(choice: SecurityAction) {
+    const entry = securityReviewQueue[0];
+    if (!entry || !context || securityReviewSaving) return;
+    const { item, strategy } = entry;
+    setSecurityReviewSaving(true);
+    setSecurityReviewError("");
+
+    try {
+      if (choice === "reject") {
+        const data = await finalizeSession(item, "reject", undefined, undefined, "reject");
+        const updated = {
+          ...item,
+          progress: 100,
+          status: "rejected" as const,
+          message: data.status.replace(/_/g, " "),
+          finalizeStatus: data.status,
+        };
+        const batch = batchResultsRef.current;
+        const index = batch.findIndex((candidate) => candidate.item_id === item.item_id);
+        if (index >= 0) batch[index] = updated;
+        for (let later = index + 1; later < batch.length; later += 1) {
+          const laterItem = batch[later];
+          if (!laterItem.analysis) continue;
+          const updatedCandidates = laterItem.analysis.matching_candidates
+            .filter((candidate) => candidate.batch_item_id !== item.item_id);
+          batch[later] = {
+            ...laterItem,
+            analysis: {
+              ...laterItem.analysis,
+              matching_candidates: updatedCandidates,
+              matching_classification: updatedCandidates.length ? laterItem.analysis.matching_classification : "no_match",
+            },
+          };
+        }
+        setItems([...batch]);
+        resolvedSecurityItems.current.add(item.item_id);
+        setSecurityReviewQueue((queue) => queue.slice(1));
+        return;
+      }
+
+      if (strategy === "review") {
+        resolvedSecurityItems.current.add(item.item_id);
+        setSecurityReviewQueue((queue) => queue.slice(1));
+        openReview(item);
+        setSecurityAction(choice);
+        return;
+      }
+
+      const candidates = item.analysis?.matching_candidates || [];
+      const hasMatch = item.analysis?.matching_classification !== "no_match" || candidates.length > 0;
+      const target = candidates.find((candidate) => Boolean(candidate.document_id));
+      let action: FinalizeAction = "new";
+      if (strategy === "independent") action = hasMatch ? "independent" : "new";
+      if (strategy === "supersede") action = hasMatch ? "supersede" : "new";
+      if (strategy === "delete_and_ingest") action = hasMatch ? "delete_and_ingest" : "new";
+      if (strategy === "reject") action = hasMatch ? "reject" : "new";
+      const targetId = target?.document_id || context.targetDocumentId;
+
+      if ((action === "supersede" || action === "delete_and_ingest") && !targetId) {
+        setSecurityReviewError("The selected duplicate-handling action needs a matched document. Skip this review and open the document's Review panel to choose another action.");
+        return;
+      }
+
+      const analysis = item.analysis!;
+      const data = await finalizeSession(item, action, targetId, {
+        title: analysis.title || item.filename.replace(/\.pdf$/i, ""),
+        documentType: analysis.document_type || "General document",
+        description: analysis.description || analysis.summary || "Uploaded document.",
+        archived: false,
+      }, choice);
+      const updated: BatchItem = {
+        ...item,
+        progress: 100,
+        status: data.status === "rejected" ? "rejected" : data.status as BatchItem["status"],
+        message: data.status.replace(/_/g, " "),
+        finalizeStatus: data.status,
+      };
+
+      const batch = batchResultsRef.current;
+      const index = batch.findIndex((candidate) => candidate.item_id === item.item_id);
+      if (index >= 0) batch[index] = updated;
+      for (let later = index + 1; later < batch.length; later += 1) {
+        const laterItem = batch[later];
+        if (!laterItem.analysis) continue;
+        const updatedCandidates = laterItem.analysis.matching_candidates
+          .filter((candidate) => !(action === "reject" && candidate.batch_item_id === item.item_id))
+          .map((candidate) => (candidate.batch_item_id === item.item_id ||
+            (action === "delete_and_ingest" && candidate.document_id === targetId)) && data.document_id
+            ? { ...candidate, document_id: data.document_id, version_id: data.document_version_id, version_number: data.version_number, status: data.status, matched_by: "batch_summary_finalized" }
+            : candidate);
+        batch[later] = {
+          ...laterItem,
+          analysis: {
+            ...laterItem.analysis,
+            matching_candidates: updatedCandidates,
+            matching_classification: updatedCandidates.length ? laterItem.analysis.matching_classification : "no_match",
+          },
+        };
+      }
+      setItems([...batch]);
+      resolvedSecurityItems.current.add(item.item_id);
+      setSecurityReviewQueue((queue) => queue.slice(1));
+    } catch (cause) {
+      setSecurityReviewError((cause as Error).message || "Could not apply this security decision. Try again or skip for now.");
+    } finally {
+      setSecurityReviewSaving(false);
+    }
+  }
+
   function openReview(item: BatchItem) {
     if (!item.analysis?.ingestion_session_id) return;
     setSelectedId(item.item_id);
@@ -469,12 +675,13 @@ export default function BatchIngestionWidget() {
     setDocumentType(item.analysis.document_type || "General document");
     setDescription(item.analysis.description || item.analysis.summary || "");
     setTargetDocumentId(context?.targetDocumentId || item.analysis.matching_candidates.find((candidate) => candidate.document_id)?.document_id || "");
+    setSecurityAction(null);
     setArchived(false);
     setError("");
     setIsOpen(true);
   }
 
-  async function finalizeSelected(action: FinalizeAction, confirmed = false) {
+  async function finalizeSelected(action: FinalizeAction, confirmed = false, securityChoice: SecurityAction | null = securityAction) {
     if (!context || !selectedItem?.analysis?.ingestion_session_id) return;
     if (action === "delete_and_ingest" && !confirmed) {
       setConfirmSingleDelete(true);
@@ -482,6 +689,12 @@ export default function BatchIngestionWidget() {
     }
     if (action !== "reject" && (!title.trim() || !documentType.trim() || !description.trim())) {
       setError("Title, document type, and description are required.");
+      return;
+    }
+    const detectedInjection = Boolean(selectedItem.analysis.security_review?.detected);
+    const selectedSecurityAction = action === "reject" && detectedInjection ? "reject" : securityChoice;
+    if (detectedInjection && !selectedSecurityAction) {
+      setError("Choose Reject, Ingest Safely, or Ingest Anyway before continuing.");
       return;
     }
     setSaving(true);
@@ -492,7 +705,7 @@ export default function BatchIngestionWidget() {
         documentType,
         description,
         archived,
-      });
+      }, selectedSecurityAction ?? undefined);
       setItems((current) => current.map((item) => {
         if (item.item_id === selectedId) {
           return { ...item, status: data.status === "rejected" ? "rejected" : data.status as BatchItem["status"], message: data.status.replace(/_/g, " "), finalizeStatus: data.status };
@@ -507,6 +720,7 @@ export default function BatchIngestionWidget() {
         return { ...item, analysis: { ...item.analysis, matching_candidates: matchingCandidates, matching_classification: matchingCandidates.length ? item.analysis.matching_classification : "no_match" } };
       }));
       setSelectedId(null);
+      setSecurityAction(null);
       setConfirmSingleDelete(false);
       setError("");
     } catch (cause) {
@@ -534,7 +748,7 @@ export default function BatchIngestionWidget() {
         <div className="sc-ingestion-overlay fixed inset-0 z-[850] flex items-center justify-center bg-slate-950/75 p-3 backdrop-blur-sm sm:p-6">
           <section role="dialog" aria-modal="true" aria-labelledby="batch-ingestion-title" className="sc-ingestion-panel flex max-h-[min(92dvh,900px)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-[#0b1724] text-white shadow-2xl">
             <header className="flex items-start justify-between gap-4 border-b border-slate-800 px-5 py-4 sm:px-7">
-              <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-400">Knowledge ingestion Â· Batch</p><h2 id="batch-ingestion-title" className="mt-1 text-xl font-semibold">{hasBatch ? "Batch ingestion progress" : "Add documents"}</h2><p className="mt-1 truncate text-xs text-slate-400">{context.organization.organization_name}</p></div>
+              <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-400">Knowledge ingestion Â· Batch</p><h2 id="batch-ingestion-title" tabIndex={-1} className="mt-1 text-xl font-semibold">{hasBatch ? "Batch ingestion progress" : "Add documents"}</h2><p className="mt-1 truncate text-xs text-slate-400">{context.organization.organization_name}</p></div>
               <button type="button" onClick={() => setIsOpen(false)} aria-label="Minimize ingestion panel" className="grid size-9 shrink-0 place-items-center rounded-lg border border-cyan-400/40 text-cyan-200 hover:bg-cyan-400/10"><span aria-hidden="true">×</span></button>
             </header>
 
@@ -604,6 +818,22 @@ export default function BatchIngestionWidget() {
                       <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold text-cyan-100">Review document</p><p className="mt-1 truncate text-xs text-slate-400">{selectedItem.filename}</p></div><button type="button" onClick={() => setSelectedId(null)} className="text-xs text-slate-400 hover:text-white">Back to batch</button></div>
                       <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs text-slate-300">Title<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={255} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" /></label><label className="text-xs text-slate-300">Document type<input value={documentType} onChange={(event) => setDocumentType(event.target.value)} maxLength={100} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" /></label><label className="text-xs text-slate-300 sm:col-span-2">Description<textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} maxLength={10000} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" /></label><label className="flex items-center gap-2 self-end pb-2 text-xs text-slate-300"><input type="checkbox" checked={archived} onChange={(event) => setArchived(event.target.checked)} /> Archived</label></div>
                       <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-[10px] text-slate-400"><p><b className="text-slate-300">SHA-256 file hash:</b> <span className="break-all font-mono">{selectedItem.analysis?.file_hash}</span></p><p className="mt-2"><b className="text-slate-300">Content hash:</b> <span className="break-all font-mono">{selectedItem.analysis?.content_hash}</span></p><p className="mt-2"><b className="text-slate-300">Pages:</b> {selectedItem.analysis?.page_count} Â· <b className="text-slate-300">Duplicate check:</b> {selectedItem.analysis?.matching_classification?.replace(/_/g, " ")}</p></div>
+                      {selectedItem.analysis?.security_review?.detected && (
+                        <div className="rounded-lg border border-amber-400/50 bg-amber-400/10 p-3 text-xs text-amber-50">
+                          <b className="block text-sm">Prompt injection detected in this document</b>
+                          <p className="mt-1 leading-5 text-amber-100/80">JEV flagged {selectedItem.analysis.security_review.flagged_chunk_indexes.length} chunk(s). Review the affected pages and choose how this document should be handled.</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {Array.from(new Set(selectedItem.analysis.security_review.findings.map((finding) => finding.page_number).filter((page): page is number => page !== null))).sort((a, b) => a - b).map((page) => <span key={page} className="rounded-full border border-amber-300/30 px-2 py-1 text-[10px]">Page {page}</span>)}
+                          </div>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                            <button type="button" disabled={saving} onClick={() => void finalizeSelected("reject", false, "reject")} className="rounded-lg border border-rose-300/50 bg-rose-950/50 px-3 py-2 font-semibold text-rose-100 disabled:opacity-40">Reject</button>
+                            <button type="button" disabled={saving} onClick={() => setSecurityAction("ingest_safely")} className={"rounded-lg border px-3 py-2 font-semibold disabled:opacity-40 " + (securityAction === "ingest_safely" ? "border-emerald-200 bg-emerald-300 text-slate-950" : "border-emerald-300/50 bg-emerald-950/40 text-emerald-100")}>Ingest Safely</button>
+                            <button type="button" disabled={saving} onClick={() => setSecurityAction("ingest_anyway")} className={"rounded-lg border px-3 py-2 font-semibold disabled:opacity-40 " + (securityAction === "ingest_anyway" ? "border-amber-100 bg-amber-200 text-slate-950" : "border-amber-300/50 bg-amber-950/40 text-amber-100")}>Ingest Anyway</button>
+                          </div>
+                          {securityAction && <p className="mt-2 text-[10px] text-amber-100/80">Selected: {securityAction.replace(/_/g, " ")}. Continue below to confirm the document metadata and duplicate-handling decision.</p>}
+                        </div>
+                      )}
+                      {selectedItem.analysis?.security_review?.status === "disabled" && <p className="rounded-lg border border-slate-700 bg-slate-950/50 p-3 text-[10px] text-slate-400">JEV document inspection is disabled in backend configuration. Enable JEV to scan uploads before indexing.</p>}
                       {selectedItem.analysis?.summary && <p className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-950/70 p-3 text-xs leading-5 text-slate-300">{selectedItem.analysis.summary}</p>}
                       {selectedItem.analysis && selectedItem.analysis.matching_classification !== "no_match" && <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-100"><b>Potential existing document detected — choose what to do</b><ul className="mt-2 space-y-2">{selectedItem.analysis.matching_candidates.map((candidate, index) => <li key={candidate.version_id || candidate.batch_ingestion_session_id || candidate.batch_item_id || index} className="flex items-start justify-between gap-3"><span>{candidate.title || candidate.original_filename || "Matched document"}<span className="block text-[10px] text-slate-400">{candidate.matched_by === "batch_identity" ? `Same resume identity: ${(candidate.identity_match_reasons || []).join(", ")}` : candidate.matched_by === "batch_summary" ? "Similar upload in this batch" : candidate.matched_by || "Summary similarity"}{!candidate.document_id ? " Â· waiting for earlier upload decision" : ` Â· v${candidate.version_number ?? "?"}`}</span></span><b className="shrink-0">{candidate.similarity_score == null ? "Exact match" : `${Math.round(candidate.similarity_score * 100)}%`}</b></li>)}</ul></div>}
                       {(context?.targetDocumentId || selectedItem.analysis?.matching_candidates.some((candidate) => Boolean(candidate.document_id))) && <label className="block text-xs text-amber-100">Matching document<select value={targetDocumentId} onChange={(event) => setTargetDocumentId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"><option value="">Choose a document to supersede</option>{context?.targetDocumentId && !selectedItem.analysis?.matching_candidates.some((candidate) => candidate.document_id === context.targetDocumentId) && <option value={context.targetDocumentId}>{context.targetDocumentTitle || "Selected document"}</option>}{(selectedItem.analysis?.matching_candidates || []).filter((candidate) => candidate.document_id).map((candidate) => <option key={candidate.document_id} value={candidate.document_id!}>{candidate.title || "Untitled document"} Â· v{candidate.version_number}</option>)}</select><span className="mt-1 block text-[10px] text-slate-500">You can supersede an existing document or ingest this as an independent document.</span></label>}
@@ -654,6 +884,133 @@ export default function BatchIngestionWidget() {
           </section>
         </div>
       )}
+
+      {activeSecurityReview && (
+        <div className="sc-security-review-overlay fixed inset-0 z-[1200] flex items-center justify-center overflow-y-auto bg-slate-950/45 p-3 backdrop-blur-sm sm:p-6" role="presentation">
+          <section
+            ref={securityDialogRef}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="security-review-title"
+            aria-describedby="security-review-description"
+            className="sc-security-review-dialog my-auto max-h-[min(88dvh,760px)] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl"
+          >
+            <div className="flex items-start gap-3 border-b border-slate-200 px-5 py-4 sm:px-6">
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-700" aria-hidden="true">
+                <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 3.5 3.8 18a1.7 1.7 0 0 0 1.5 2.5h13.4a1.7 1.7 0 0 0 1.5-2.5L12 3.5Z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4.5m0 3h.01" />
+                </svg>
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">Security review required</p>
+                <h2 id="security-review-title" className="mt-1 text-lg font-semibold text-slate-950">Prompt injection detected</h2>
+                <p id="security-review-description" className="mt-1 text-sm leading-5 text-slate-600">
+                  JEV flagged {activeSecurityReview.item.analysis?.security_review?.flagged_chunk_indexes.length ?? 0} chunks in this document. Choose how to handle it before ingestion continues.
+                </p>
+              </div>
+            </div>
+
+              <p className="rounded-lg border border-teal-100 bg-teal-50 px-3 py-2 text-xs leading-5 text-teal-900">
+                Your selected batch strategy will continue after this security decision:{" "}
+                <b>{activeSecurityReview.strategy === "independent" ? "Ingest anyway" : activeSecurityReview.strategy === "delete_and_ingest" ? "Delete and ingest" : activeSecurityReview.strategy === "supersede" ? "Supersede and ingest" : activeSecurityReview.strategy === "reject" ? "Reject duplicates" : "Upload for review"}</b>.
+              </p>
+            <div className="space-y-4 px-5 py-4 sm:px-6">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="truncate text-sm font-semibold text-slate-900" title={activeSecurityReview.item.filename}>{activeSecurityReview.item.filename}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                  <span className="rounded-md bg-amber-100 px-2 py-1 font-semibold text-amber-800">
+                    {activeSecurityReview.item.analysis?.security_review?.flagged_chunk_indexes.length ?? 0} flagged chunks
+                  </span>
+                  <span>
+                    {new Set((activeSecurityReview.item.analysis?.security_review?.findings ?? []).map((finding) => finding.page_number).filter((page): page is number => page !== null)).size} affected pages
+                  </span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Affected pages">
+                  {Array.from(new Set((activeSecurityReview.item.analysis?.security_review?.findings ?? []).map((finding) => finding.page_number).filter((page): page is number => page !== null))).sort((a, b) => a - b).map((page) => (
+                    <span key={page} className="rounded-md border border-amber-200 bg-white px-2 py-1 text-xs font-medium text-slate-700">Page {page}</span>
+                  ))}
+                  {!(activeSecurityReview.item.analysis?.security_review?.findings ?? []).some((finding) => finding.page_number !== null) && (
+                    <span className="text-xs text-slate-500">Page numbers are not available for these findings.</span>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowSecurityFindings((visible) => !visible)}
+                  aria-expanded={showSecurityFindings}
+                  className="inline-flex items-center gap-2 text-sm font-semibold text-slate-800 underline decoration-slate-300 underline-offset-4 hover:text-teal-800"
+                >
+                  {showSecurityFindings ? "Hide finding details" : "Review flagged pages"}
+                  <span aria-hidden="true">{showSecurityFindings ? "−" : "+"}</span>
+                </button>
+                {showSecurityFindings && (
+                  <ul className="mt-3 max-h-44 space-y-2 overflow-y-auto pr-1">
+                    {(activeSecurityReview.item.analysis?.security_review?.findings ?? []).map((finding, index) => (
+                      <li key={finding.chunk_index + "-" + index} className="rounded-lg border border-slate-200 px-3 py-2 text-xs">
+                        <div className="flex flex-wrap items-center gap-2 font-semibold text-slate-800">
+                          <span>{finding.page_number === null ? "Page unavailable" : "Page " + finding.page_number}</span>
+                          <span className="rounded bg-slate-100 px-1.5 py-0.5 font-normal text-slate-600">{finding.category.replace(/_/g, " ")}</span>
+                          <span className="font-normal text-amber-700">{finding.severity}</span>
+                        </div>
+                        <p className="mt-1 leading-5 text-slate-600">{finding.reason}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {securityReviewError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{securityReviewError}</p>}
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  disabled={securityReviewSaving}
+                  onClick={() => void resolveSecurityReview("ingest_safely")}
+                  className="rounded-xl border border-teal-700 bg-teal-700 px-4 py-3 text-left text-sm font-semibold text-white transition hover:bg-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Ingest safely
+                  <span className="mt-1 block text-xs font-normal text-teal-50">Exclude flagged chunks and continue with the selected upload strategy.</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={securityReviewSaving}
+                  onClick={() => void resolveSecurityReview("ingest_anyway")}
+                  className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-left text-sm font-semibold text-amber-950 transition hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Ingest anyway
+                  <span className="mt-1 block text-xs font-normal text-amber-900">Keep all chunks and carry the security label into generation.</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={securityReviewSaving}
+                  onClick={() => void resolveSecurityReview("reject")}
+                  className="rounded-xl border border-rose-200 bg-white px-4 py-2.5 text-left text-sm font-semibold text-rose-800 transition hover:bg-rose-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 disabled:cursor-not-allowed disabled:opacity-60 sm:col-span-2"
+                >
+                  Reject document
+                  <span className="mt-0.5 block text-xs font-normal text-rose-700">Do not add this document to the knowledge base.</span>
+                </button>
+              </div>
+            </div>
+
+            <footer className="flex flex-col-reverse items-start justify-between gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 sm:flex-row sm:items-center sm:px-6">
+              <p className="max-w-sm text-xs leading-5 text-slate-500">Skipping keeps this document pending. It will not be ingested until you review it.</p>
+              <button
+                ref={securitySkipButtonRef}
+                type="button"
+                disabled={securityReviewSaving}
+                onClick={skipSecurityReview}
+                className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 underline decoration-slate-300 underline-offset-4 hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Skip for now
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
     </>
   );
 }
