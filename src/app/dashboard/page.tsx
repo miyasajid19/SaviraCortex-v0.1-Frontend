@@ -9,6 +9,7 @@ import { auth, firebaseConfigError } from "../firebase";
 import InvitationPanel from "./InvitationPanel";
 import DocumentIngestionModal from "./DocumentIngestionModal";
 import DocumentLibrary from "./DocumentLibrary";
+import GuardrailSettingsPanel from "./GuardrailSettingsPanel";
 
 const API = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -347,7 +348,7 @@ function DepartmentPanel({ organization, token, uploaderId }: { organization: Or
   }
 
   const canManage = organization.role === "owner" || organization.role === "admin";
-  const [activeSection, setActiveSection] = useState<"overview" | "departments" | "people" | "access">("overview");
+  const [activeSection, setActiveSection] = useState<"overview" | "departments" | "people" | "access" | "guardrails">("overview");
   const selectedDepartment = departments.find((department) => department.id === selectedDepartmentId);
   const filteredDepartments = departments.filter((department) => `${department.name} ${department.description || ""}`.toLowerCase().includes(departmentSearch.trim().toLowerCase()));
   const sectionItems = [
@@ -355,6 +356,7 @@ function DepartmentPanel({ organization, token, uploaderId }: { organization: Or
     { id: "departments" as const, label: "Departments", detail: "Teams and spaces", mark: "02" },
     { id: "people" as const, label: "People", detail: "Members and assignments", mark: "03" },
     { id: "access" as const, label: "Access & roles", detail: "Invitations and permissions", mark: "04" },
+    { id: "guardrails" as const, label: "Guardrails", detail: "Input and output safety", mark: "05" },
   ];
 
   if (!canManage) {
@@ -447,6 +449,7 @@ function DepartmentPanel({ organization, token, uploaderId }: { organization: Or
             {membersLoading ? <div className="sc-empty mt-5">Loading people…</div> : members.length ? <div className="mt-5 overflow-hidden rounded-xl border border-white/[0.08]">{members.map((member)=><div key={member.user_id} className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] bg-white/[0.02] p-4 last:border-0"><div className="flex min-w-0 items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-cyan-200/15 bg-cyan-200/[0.06] text-sm font-semibold text-cyan-100">{(member.display_name || member.email || "U").slice(0,1).toUpperCase()}</span><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-100">{member.display_name || member.email || "SaviraCortex user"}</p><p className="mt-1 truncate text-xs text-slate-500">{member.email || member.user_id}</p></div></div><div className="flex items-center gap-2">{organization.role==="owner" && member.role!=="owner" ? <select aria-label={`Role for ${member.display_name || member.email || "member"}`} value={member.role} onChange={(event)=>void changeMemberRole(member,event.target.value)} className="sc-select"><option value="member">Member</option><option value="admin">Admin</option></select> : <span className="sc-role-chip capitalize">{member.role}</span>}{canManage && member.role!=="owner" && <button type="button" onClick={()=>void removeMember(member)} className="sc-danger-link">Remove</button>}</div></div>)}</div> : <div className="sc-empty mt-5">No organization members found.</div>}
             {canManage && <form onSubmit={addMember} className="sc-form-panel mt-5"><p className="sc-kicker">TEAM ACCESS</p><h4 className="mt-2 text-base font-semibold text-white">Add an existing member</h4><p className="mt-1 text-xs text-slate-500">Use the user ID from their SaviraCortex profile.</p><div className="mt-4 grid gap-3 md:grid-cols-[1fr_180px_auto]"><input required value={memberUserId} onChange={(event)=>setMemberUserId(event.target.value)} placeholder="User UUID" className="sc-input" aria-label="User ID" />{organization.role==="owner" && <select value={memberRole} onChange={(event)=>setMemberRole(event.target.value)} className="sc-select"><option value="member">Member</option><option value="admin">Admin</option></select>}<button type="submit" disabled={memberSaving || !memberUserId.trim()} className="sc-action-button">{memberSaving ? "Adding…" : "Add member"}</button></div></form>}
           </section>}
+          {activeSection === "guardrails" && <GuardrailSettingsPanel key={organization.organization_id} organizationId={organization.organization_id} token={token} />}
           {activeSection === "access" && <section>
             <div className="sc-section-heading"><div><p className="sc-kicker">GOVERNANCE</p><h3 className="mt-2 text-2xl font-semibold text-white">Access & roles</h3><p className="mt-1 text-sm text-slate-500">Invite teammates and define organization role labels.</p></div><span className="sc-count-chip">{roles.length} roles</span></div>
             <div className="mt-5"><InvitationPanel organization={organization} token={token} /></div>

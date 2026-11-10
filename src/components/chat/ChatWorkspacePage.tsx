@@ -32,6 +32,15 @@ type Citation = {
   section: string | null;
 };
 
+type PIIConsentChallenge = {
+  query: string;
+  requestId: string;
+  userMessageId: string;
+  redactedPreview: string;
+  entities: string[];
+  allowedActions: Array<"redact" | "send_as_is" | "reject">;
+};
+
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -44,6 +53,9 @@ type ChatMessage = {
   feedbackStatus?: "relevant" | "not_relevant";
   feedbackSaving?: boolean;
   feedbackError?: string;
+  error?: string;
+  guardrailDecision?: "blocked" | "redirected" | "redacted";
+  guardrailCategories?: string[];
 };
 
 type ConversationSummary = {
@@ -57,11 +69,15 @@ type StoredConversationMessage = {
   message_id: string;
   role: "user" | "assistant";
   content: string;
-  metadata?: Partial<GenerationPayload> & { feedback_status?: "relevant" | "not_relevant" | null };
+  metadata?: Partial<GenerationPayload> & {
+    feedback_status?: "relevant" | "not_relevant" | null;
+    guardrail_decision?: "blocked" | "redirected" | "redacted" | null;
+    guardrail_categories?: string[];
+  };
 };
 
 type GenerationPayload = {
-  generation_id: string;
+  generation_id?: string | null;
   conversation_id: string;
   request_id: string;
   query: string;
@@ -72,6 +88,8 @@ type GenerationPayload = {
   missing_information: string[];
   retrieval_attempts: number;
   evidence_count: number;
+  guardrail_decision?: "blocked" | "redirected" | "redacted" | null;
+  guardrail_categories?: string[];
 };
 
 const starterPrompts = [
@@ -90,8 +108,10 @@ function mapStoredMessage(item: StoredConversationMessage): ChatMessage {
     citations: metadata.citations || [],
     warnings: metadata.warnings || [],
     missingInformation: metadata.missing_information || [],
-    generationId: metadata.generation_id,
+    generationId: metadata.generation_id || undefined,
     feedbackStatus: metadata.feedback_status || undefined,
+    guardrailDecision: metadata.guardrail_decision || undefined,
+    guardrailCategories: metadata.guardrail_categories || [],
   };
 }
 
@@ -133,6 +153,7 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
   const [sending, setSending] = useState(false);
   const [streamingStage, setStreamingStage] = useState("");
   const [error, setError] = useState(firebaseConfigError);
+  const [piiConsent, setPiiConsent] = useState<PIIConsentChallenge | null>(null);
   const [pdfViewer, setPdfViewer] = useState<{ url: string; title: string; page: number | null } | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfLoadingTitle, setPdfLoadingTitle] = useState("Source document");
@@ -294,26 +315,25 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
     router.replace("/chat");
   }
 
-  async function sendMessage(event?: FormEvent<HTMLFormElement>) {
+  async function sendMessage(
+    event?: FormEvent<HTMLFormElement>,
+    piiAction?: "redact" | "send_as_is",
+    retry?: PIIConsentChallenge,
+  ) {
     event?.preventDefault();
-    const query = draft.trim();
+    const query = retry?.query || draft.trim();
     if (!query || sending || !selectedOrganizationId) return;
-
     const currentUser = auth?.currentUser;
-    if (!currentUser) {
-      router.replace("/login");
-      return;
-    }
+    if (!currentUser) { router.replace("/login"); return; }
 
-    const requestId = crypto.randomUUID();
-    const userMessage: ChatMessage = { id: makeId(), role: "user", content: query };
+    const requestId = retry?.requestId || crypto.randomUUID();
+    const userMessage: ChatMessage = { id: retry?.userMessageId || makeId(), role: "user", content: query };
     const assistantId = makeId();
     const controller = new AbortController();
     abortController.current = controller;
-
-    setMessages((current) => [...current, userMessage, {
-      id: assistantId, role: "assistant", content: "", citations: [],
-    }]);
+    setMessages((current) => retry
+      ? [...current, { id: assistantId, role: "assistant", content: "", citations: [] }]
+      : [...current, userMessage, { id: assistantId, role: "assistant", content: "", citations: [] }]);
     setDraft("");
     setError("");
     setStreamingStage("Connecting to SaviraCortex…");
@@ -322,18 +342,15 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
     try {
       const token = await currentUser.getIdToken();
       const response = await fetch(
-        `${API}/api/v1/organizations/${selectedOrganizationId}/generation/stream`,
+        API + "/api/v1/organizations/" + selectedOrganizationId + "/generation/stream",
         {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-            Accept: "text/event-stream",
-          },
+          headers: { Authorization: "Bearer " + token, "Content-Type": "application/json", Accept: "text/event-stream" },
           body: JSON.stringify({
             query,
             conversation_id: routeConversationId,
             request_id: requestId,
+            ...(piiAction ? { pii_action: piiAction } : {}),
           }),
           signal: controller.signal,
           cache: "no-store",
@@ -341,7 +358,7 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
       );
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        throw new Error(data.detail || `Generation failed (HTTP ${response.status}).`);
+        throw new Error(data.detail?.message || data.detail || "Generation failed (HTTP " + response.status + ").");
       }
       if (!response.body) throw new Error("The server did not open a response stream.");
 
@@ -349,6 +366,7 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
       const decoder = new TextDecoder();
       let buffer = "";
       let completed = false;
+      let consentRequired = false;
 
       const processFrame = (frame: string) => {
         if (!frame.trim()) return;
@@ -360,39 +378,57 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
         }
         if (!dataLines.length) return;
         const payload = JSON.parse(dataLines.join("\n")) as Record<string, unknown>;
-
         if (eventName === "status") {
           setStreamingStage(String(payload.message || "Preparing your answer…"));
         } else if (eventName === "delta") {
           const delta = typeof payload.delta === "string" ? payload.delta : "";
-          if (delta) {
-            setMessages((current) => current.map((message) =>
-              message.id === assistantId ? { ...message, content: message.content + delta } : message,
-            ));
-          }
-          setStreamingStage("Writing answer…");
+          if (delta) setMessages((current) => current.map((message) =>
+            message.id === assistantId ? { ...message, content: message.content + delta } : message));
+          setStreamingStage("Checking and writing answer…");
         } else if (eventName === "completed") {
           const result = payload.result as GenerationPayload | undefined;
           if (!result) throw new Error("The server completed without a validated answer.");
           completed = true;
           void refreshConversationList();
           window.setTimeout(() => void refreshConversationList(), 3000);
-          if (result.conversation_id && !routeConversationId) {
-            router.replace(`/chat/${result.conversation_id}`);
-          }
-          setMessages((current) => current.map((message) => message.id === assistantId ? {
-            ...message,
-            content: result.answer,
-            generationId: result.generation_id,
-            status: result.status,
-            citations: result.citations || [],
-            warnings: result.warnings || [],
-            missingInformation: result.missing_information || [],
-          } : message));
+          if (result.conversation_id && !routeConversationId) router.replace("/chat/" + result.conversation_id);
+          setMessages((current) => current.map((message) => {
+            if (message.id === userMessage.id) {
+              return {
+                ...message,
+                content: result.query || message.content,
+                guardrailDecision: result.query && result.query !== query ? "redacted" : message.guardrailDecision,
+              };
+            }
+            if (message.id === assistantId) {
+              return {
+                ...message, content: result.answer, generationId: result.generation_id || undefined,
+                status: result.status, citations: result.citations || [],
+                warnings: result.warnings || [], missingInformation: result.missing_information || [],
+                guardrailDecision: result.guardrail_decision || undefined,
+                guardrailCategories: result.guardrail_categories || [],
+              };
+            }
+            return message;
+          }));
           setStreamingStage("");
         } else if (eventName === "error") {
+          if (payload.code === "pii_consent_required") {
+            consentRequired = true;
+            setMessages((current) => current.filter((message) => message.id !== assistantId));
+            setPiiConsent({
+              query, requestId, userMessageId: userMessage.id,
+              redactedPreview: String(payload.redacted_preview || ""),
+              entities: Array.isArray(payload.entities) ? payload.entities.map(String) : [],
+              allowedActions: Array.isArray(payload.allowed_actions)
+                ? payload.allowed_actions.filter((item): item is "redact" | "send_as_is" | "reject" =>
+                    item === "redact" || item === "send_as_is" || item === "reject")
+                : ["redact", "reject"],
+            });
+            return;
+          }
           if (typeof payload.conversation_id === "string" && !routeConversationId) {
-            router.replace(`/chat/${payload.conversation_id}`);
+            router.replace("/chat/" + payload.conversation_id);
             void refreshConversationList();
           }
           throw new Error(String(payload.message || "Generation failed. Please retry."));
@@ -408,16 +444,37 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
         if (done) break;
       }
       if (buffer.trim()) processFrame(buffer);
-      if (!completed) throw new Error("The response stream ended before citation validation completed.");
+      if (!completed && !consentRequired) {
+        throw new Error("The response stream ended before final guardrail and citation validation completed.");
+      }
     } catch (err) {
       const aborted = err instanceof DOMException && err.name === "AbortError";
       setMessages((current) => current.filter((message) => message.id !== assistantId));
-      if (!aborted) setError((err as Error).message || "Something went wrong. Please try again.");
+      if (!aborted) {
+        const messageError = (err as Error).message || "Something went wrong. Please try again.";
+        setMessages((current) => current.map((message) =>
+          message.id === userMessage.id ? { ...message, error: messageError } : message));
+      }
     } finally {
       abortController.current = null;
       setSending(false);
       setStreamingStage("");
     }
+  }
+
+  function resolvePiiConsent(action: "redact" | "send_as_is" | "reject") {
+    if (!piiConsent) return;
+    const pending = piiConsent;
+    setPiiConsent(null);
+    if (action === "reject") {
+      setMessages((current) => current.filter((message) => message.id !== pending.userMessageId));
+      setMessages((current) => current.map((message) =>
+        message.id === pending.userMessageId
+          ? { ...message, error: "Request cancelled. The original message was not sent to the assistant." }
+          : message));
+      return;
+    }
+    void sendMessage(undefined, action, pending);
   }
 
   async function refreshConversationList() {
@@ -739,9 +796,17 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
                     {message.role === "assistant" ? (
                       <>
                         <span>SaviraCortex</span>
-                        {message.status && (
-                          <span className="rounded-full bg-neutral-100 px-2 py-1 text-[10px] font-normal tracking-normal text-neutral-600">
-                            {message.status.replaceAll("_", " ")}
+                        {(message.guardrailDecision || message.status) && (
+                          <span className={message.guardrailDecision === "blocked"
+                            ? "rounded-full bg-red-50 px-2 py-1 text-[10px] font-normal tracking-normal text-red-700"
+                            : "rounded-full bg-neutral-100 px-2 py-1 text-[10px] font-normal tracking-normal text-neutral-600"}>
+                            {message.guardrailDecision === "blocked"
+                              ? "blocked by guardrails"
+                              : message.guardrailDecision === "redirected"
+                                ? "policy redirect"
+                                : message.guardrailDecision === "redacted"
+                                  ? "redacted by guardrails"
+                                  : message.status?.replaceAll("_", " ")}
                           </span>
                         )}
                       </>
@@ -808,6 +873,24 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
                       </ul>
                     )}
                   </div>
+                  {message.error && (
+                    <div role="alert" className="mt-2 max-w-[88%] rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700">
+                      {message.error}
+                    </div>
+                  )}
+                  {message.guardrailDecision === "blocked" && (
+                    <div role="status" className="mt-2 max-w-[88%] rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700">
+                      This response was blocked by organization guardrails.
+                      {!!message.guardrailCategories?.length && (
+                        <span className="ml-1 text-red-600">Category: {message.guardrailCategories.join(", ").replaceAll("_", " ")}.</span>
+                      )}
+                    </div>
+                  )}
+                  {message.guardrailDecision === "redacted" && (
+                    <div role="status" className="mt-2 max-w-[88%] rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                      Sensitive information was redacted before this message was processed.
+                    </div>
+                  )}
                   {message.role === "assistant" && message.generationId && (
                     <div className="mt-3 flex flex-wrap items-center gap-2 px-1 text-xs">
                       <span className="mr-1 text-neutral-500">Was this answer helpful?</span>
@@ -899,6 +982,42 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
           </>
         )}
       </section>
+      {piiConsent && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-950/55 p-4">
+          <section role="dialog" aria-modal="true" aria-labelledby="pii-consent-title"
+            aria-describedby="pii-consent-description"
+            className="w-full max-w-xl rounded-2xl border border-neutral-200 bg-white p-5 shadow-2xl sm:p-6">
+            <div className="flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-50 text-lg text-amber-800" aria-hidden="true">!</span>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-800">Privacy check</p>
+                <h2 id="pii-consent-title" className="mt-1 text-lg font-semibold text-neutral-950">Personal information detected</h2>
+                <p id="pii-consent-description" className="mt-2 text-sm leading-6 text-neutral-600">
+                  Your message has not been sent to the assistant. Choose whether to redact the detected information, send the original with your consent, or cancel.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 rounded-xl border border-neutral-200 bg-neutral-50 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-neutral-500">Detected types</p>
+              <p className="mt-1 text-xs text-neutral-700">{piiConsent.entities.join(", ") || "Personal information"}</p>
+              <p className="mt-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-neutral-500">Redacted preview</p>
+              <p className="mt-1 break-words text-sm leading-6 text-neutral-800">{piiConsent.redactedPreview}</p>
+            </div>
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => resolvePiiConsent("reject")}
+                className="rounded-xl border border-neutral-300 px-4 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-700">Cancel</button>
+              {piiConsent.allowedActions.includes("send_as_is") && (
+                <button type="button" onClick={() => resolvePiiConsent("send_as_is")}
+                  className="rounded-xl border border-neutral-300 px-4 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-700">Send original</button>
+              )}
+              {piiConsent.allowedActions.includes("redact") && (
+                <button type="button" onClick={() => resolvePiiConsent("redact")}
+                  className="rounded-xl bg-neutral-950 px-4 py-2.5 text-sm font-semibold text-white hover:bg-neutral-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-700">Redact and send</button>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
       {(pdfViewer || pdfLoading) && (
         <div
           className="fixed inset-0 z-50 flex justify-end bg-black/40 p-2 sm:p-5"
