@@ -30,6 +30,9 @@ type Policy = {
   topicality_high_threshold: number;
   topicality_low_threshold: number;
   history_window_exchanges: number;
+  output_streaming_mode: "segment" | "optimistic" | "bucket";
+  output_bucket_min_tokens: number;
+  output_bucket_max_tokens: number;
 };
 
 const inputCategories = [
@@ -72,6 +75,7 @@ function defaultPolicy(): Policy {
     pii_require_consent: true, pii_allow_send_as_is: true,
     topicality_enabled: true, topicality_high_threshold: 0.6,
     topicality_low_threshold: 0.2, history_window_exchanges: 5,
+    output_streaming_mode: "segment", output_bucket_min_tokens: 128, output_bucket_max_tokens: 512,
   };
 }
 
@@ -253,6 +257,22 @@ export default function GuardrailSettingsPanel({
         </div>
       </section>
 
+      <section className="sc-detail-panel space-y-4">
+        <div><p className="sc-kicker">OUTPUT STREAMING EXPERIENCE</p><h4 className="mt-2 text-base font-semibold text-white">Choose when generated text becomes visible</h4><p className="mt-1 text-xs leading-5 text-slate-500">The platform default checks each segment before display. Optimistic mode displays before background review and may retract content after detection. Bucket mode waits for a token window to pass review.</p></div>
+        <label className="block"><span className="sc-field-label">Streaming strategy</span>
+          <select value={policy.output_streaming_mode} onChange={(event) => setPolicy((current) => ({ ...current, output_streaming_mode: event.target.value as Policy["output_streaming_mode"] }))} className="sc-select w-full">
+            <option value="segment">Strict — check before display (default)</option>
+            <option value="optimistic">Optimistic — display immediately, review in background</option>
+            <option value="bucket">Bucket — collect, review, then display</option>
+          </select>
+        </label>
+        {policy.output_streaming_mode === "bucket" && <div className="grid gap-4 sm:grid-cols-2">
+          <label className="block"><span className="sc-field-label">Minimum bucket tokens</span><input type="number" min="16" max="8192" step="16" value={policy.output_bucket_min_tokens} onChange={(event) => setPolicy((current) => ({ ...current, output_bucket_min_tokens: Number(event.target.value) }))} className="sc-input" /></label>
+          <label className="block"><span className="sc-field-label">Maximum bucket tokens</span><input type="number" min="32" max="16384" step="32" value={policy.output_bucket_max_tokens} onChange={(event) => setPolicy((current) => ({ ...current, output_bucket_max_tokens: Number(event.target.value) }))} className="sc-input" /></label>
+        </div>}
+        <p className="text-[11px] leading-5 text-amber-200/80">Platform-mandated secret and credential protections remain pre-display in every mode. Optimistic UI suppression cannot undo content already seen or copied. Full-response validation remains enabled.</p>
+      </section>
+
       <section className="sc-detail-panel">
         <div className="mb-4"><p className="sc-kicker">OUTPUT GUARDRAILS</p><h4 className="mt-2 text-base font-semibold text-white">Inspect generated responses</h4><p className="mt-1 text-xs text-slate-500">Every stream segment is checked before release. The complete answer is checked again before persistence and completion.</p></div>
         <div className="divide-y divide-white/[0.07]">
@@ -298,7 +318,7 @@ export default function GuardrailSettingsPanel({
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-xl text-xs leading-5 text-slate-500">Policy changes apply to new requests. Each active request keeps the policy snapshot it started with.</p>
-        <button type="submit" disabled={saving || policy.topicality_low_threshold >= policy.topicality_high_threshold}
+        <button type="submit" disabled={saving || policy.topicality_low_threshold >= policy.topicality_high_threshold || (policy.output_streaming_mode === "bucket" && (policy.output_bucket_min_tokens < 16 || policy.output_bucket_max_tokens > 16384 || policy.output_bucket_min_tokens > policy.output_bucket_max_tokens))}
           className="sc-action-button">{saving ? "Saving policy…" : "Save guardrail policy"}</button>
       </div>
     </form>
