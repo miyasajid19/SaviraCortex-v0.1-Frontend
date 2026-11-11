@@ -3,6 +3,9 @@ const API = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").re
 type GenerationResult = {
   generation_id?: string | null;
   conversation_id?: string | null;
+  checkpoint_id?: string | null;
+  path_group_id?: string | null;
+  path_id?: string | null;
   query: string;
   answer: string;
   status: "answered" | "partial" | "insufficient_evidence";
@@ -61,7 +64,12 @@ export async function POST(request: Request) {
   const backendPayload = {
     query,
     conversation_id: typeof body.conversation_id === "string" ? body.conversation_id : null,
+    ...(typeof body.checkpoint_id === "string" && body.checkpoint_id ? { checkpoint_id: body.checkpoint_id } : {}),
+    ...(typeof body.path_group_id === "string" && body.path_group_id ? { path_group_id: body.path_group_id } : {}),
+    ...(typeof body.path_id === "string" && body.path_id ? { path_id: body.path_id } : {}),
     request_id: requestId,
+    ...(typeof body.assistant_message_id === "string" ? { assistant_message_id: assistantMessageId } : {}),
+    ...(typeof body.user_message_id === "string" && body.user_message_id ? { user_message_id: userMessageId } : {}),
     ...(body.pii_action === "redact" || body.pii_action === "send_as_is" ? { pii_action: body.pii_action } : {}),
   };
 
@@ -167,6 +175,9 @@ export async function POST(request: Request) {
           const metadata = {
             generationId: result.generation_id || undefined,
             conversationId: result.conversation_id || undefined,
+            checkpointId: result.checkpoint_id || undefined,
+            pathGroupId: result.path_group_id || undefined,
+            pathId: result.path_id || undefined,
             status: result.status,
             citations: result.citations || [],
             warnings: result.warnings || [],

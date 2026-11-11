@@ -59,6 +59,9 @@ type ChatMessage = {
   guardrailDecision?: "blocked" | "redirected" | "redacted";
   guardrailCategories?: string[];
   conversationId?: string;
+  checkpointId?: string;
+  pathGroupId?: string;
+  pathId?: string;
 };
 
 type SaviraMessageMetadata = Omit<ChatMessage, "id" | "role" | "content">;
@@ -75,6 +78,8 @@ type ConversationSummary = {
   title: string;
   created_at: string;
   updated_at: string;
+  parent_conversation_id?: string | null;
+  branch_action?: string | null;
 };
 
 type StoredConversationMessage = {
@@ -85,6 +90,9 @@ type StoredConversationMessage = {
     feedback_status?: "relevant" | "not_relevant" | null;
     guardrail_decision?: "blocked" | "redirected" | "redacted" | null;
     guardrail_categories?: string[];
+    checkpoint_id?: string | null;
+    path_group_id?: string | null;
+    path_id?: string | null;
   };
 };
 
@@ -102,7 +110,24 @@ type GenerationPayload = {
   evidence_count: number;
   guardrail_decision?: "blocked" | "redirected" | "redacted" | null;
   guardrail_categories?: string[];
+  checkpoint_id?: string | null;
 };
+
+
+type MessageActionIconName = "copy" | "edit" | "refresh" | "fork" | "thumb-up" | "thumb-down";
+
+function MessageActionIcon({ name, className = "h-4 w-4" }: { name: MessageActionIconName; className?: string }) {
+  const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  const paths: Record<MessageActionIconName, React.ReactNode> = {
+    copy: <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></>,
+    edit: <><path d="m15 5 4 4" /><path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z" /></>,
+    refresh: <><path d="M20 7v5h-5" /><path d="M4 17v-5h5" /><path d="M5.6 9A7 7 0 0 1 18 6l2 6M4 12l2 6a7 7 0 0 0 12.4-3" /></>,
+    fork: <><circle cx="6" cy="4" r="2" /><circle cx="18" cy="18" r="2" /><circle cx="18" cy="6" r="2" /><path d="M6 6v8a4 4 0 0 0 4 4h6M14 6h2" /></>,
+    "thumb-up": <path d="M7 10v10H4a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2h3Zm0 0 5-8c2 0 3 2 2 4l-1 4h6a2 2 0 0 1 2 2l-2 7a2 2 0 0 1-2 1H7" />,
+    "thumb-down": <path d="M7 14V4H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h3Zm0 0 5 8c2 0 3-2 2-4l-1-4h6a2 2 0 0 0 2-2l-2-7a2 2 0 0 0-2-1H7" />,
+  };
+  return <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...common}>{paths[name]}</svg>;
+}
 
 const starterPrompts = [
   "Summarize the key points in our documents.",
@@ -123,12 +148,15 @@ function mapStoredMessage(item: StoredConversationMessage): ChatMessage {
     generationId: metadata.generation_id || undefined,
     feedbackStatus: metadata.feedback_status || undefined,
     guardrailDecision: metadata.guardrail_decision || undefined,
+    checkpointId: metadata.checkpoint_id || undefined,
+    pathGroupId: metadata.path_group_id || undefined,
+    pathId: metadata.path_id || undefined,
     guardrailCategories: metadata.guardrail_categories || [],
   };
 }
 
 function makeId() {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return crypto.randomUUID();
 }
 
 function toSaviraUIMessage(message: ChatMessage): SaviraUIMessage {
@@ -167,6 +195,8 @@ function linkCitationMarkers(markdown: string): string {
 
 export default function ChatWorkspacePage({ conversationId: routeConversationId = null }: { conversationId?: string | null }) {
   const router = useRouter();
+  const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
+  const pathMessagesCacheRef = useRef<Map<string, { messages: ChatMessage[]; historyOffset: number; hasOlderMessages: boolean }>>(new Map());
   const scrollAnchor = useRef<HTMLDivElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const suppressAutoScroll = useRef(false);
@@ -174,10 +204,15 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
   const routeConversationIdRef = useRef(routeConversationId);
   routeConversationIdRef.current = routeConversationId;
   const refreshConversationListRef = useRef<() => void>(() => {});
+  const skipNextPathReloadRef = useRef(false);
   const pendingRequestRef = useRef<{
     requestId: string;
     userMessageId: string;
     assistantMessageId: string;
+    conversationId?: string;
+    checkpointId?: string;
+    pathGroupId?: string;
+    pathId?: string;
     query: string;
     piiAction?: "redact" | "send_as_is";
     consentRequired?: boolean;
@@ -194,6 +229,10 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
   const [historyOffset, setHistoryOffset] = useState(0);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [draft, setDraft] = useState("");
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [branchBusy, setBranchBusy] = useState(false);
+  const [pathOptionsByGroup, setPathOptionsByGroup] = useState<Record<string, Array<{ path_id: string | null; label: string }>>>({});
   const [loadingProfile, setLoadingProfile] = useState(Boolean(auth));
   const [streamingStage, setStreamingStage] = useState("");
   const [error, setError] = useState(firebaseConfigError);
@@ -218,12 +257,15 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
       const pending = pendingRequestRef.current;
       const requestId = pending?.requestId || crypto.randomUUID();
       const assistantMessageId = pending?.assistantMessageId || makeId();
-      const userMessageId = lastUserMessage?.id || pending?.userMessageId || "";
+      const userMessageId = pending?.userMessageId || lastUserMessage?.id || "";
       if (pending && userMessageId) pending.userMessageId = userMessageId;
       return {
         body: {
           organization_id: selectedOrganizationId,
-          conversation_id: routeConversationId,
+          conversation_id: pending?.conversationId || routeConversationId,
+          ...(pending?.checkpointId ? { checkpoint_id: pending.checkpointId } : {}),
+          ...(pending?.pathGroupId ? { path_group_id: pending.pathGroupId } : {}),
+          ...(pending?.pathId ? { path_id: pending.pathId } : selectedPathId ? { path_id: selectedPathId } : {}),
           query: pending?.query || messageText,
           request_id: requestId,
           assistant_message_id: assistantMessageId,
@@ -232,7 +274,7 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
         },
       };
     },
-  }), [selectedOrganizationId, routeConversationId]);
+  }), [selectedOrganizationId, routeConversationId, selectedPathId]);
 
   const {
     messages: sdkMessages,
@@ -285,11 +327,15 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
       const pending = pendingRequestRef.current;
       if (pending) {
         pending.failed = true;
-        sdkSetMessagesRef.current?.((current) => current
-          .filter((message) => message.id !== pending.assistantMessageId)
-          .map((message) => message.id === pending.userMessageId
-            ? { ...message, metadata: { ...message.metadata, error: chatError.message } }
-            : message));
+        sdkSetMessagesRef.current?.((current) => {
+          const sdkAssistantId = [...current].reverse().find((item) => item.role === "assistant")?.id;
+          const sdkUserId = [...current].reverse().find((item) => item.role === "user")?.id;
+          return current
+            .filter((item) => item.id !== sdkAssistantId)
+            .map((item) => item.id === sdkUserId
+              ? { ...item, id: pending.userMessageId, metadata: { ...item.metadata, error: chatError.message } }
+              : item);
+        });
         pendingRequestRef.current = null;
       }
     },
@@ -297,10 +343,45 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
       setStreamingStage("");
       const pending = pendingRequestRef.current;
       if (pending?.consentRequired || pending?.failed) {
-        sdkSetMessagesRef.current?.((current) => current.filter((item) => item.id !== pending.assistantMessageId));
+        sdkSetMessagesRef.current?.((current) => current.filter((item) => item.id !== message.id));
       }
       const conversationId = message.metadata?.conversationId;
       if (conversationId && !routeConversationIdRef.current) router.replace("/chat/" + conversationId);
+      if (pending) {
+        sdkSetMessagesRef.current?.((current) => {
+          const sdkUserId = [...current].reverse().find((item) => item.role === "user")?.id;
+          return current.map((item) => {
+            if (item.id === message.id) return { ...item, id: pending.assistantMessageId };
+            if (sdkUserId && item.id === sdkUserId) {
+              return {
+                ...item,
+                id: pending.userMessageId,
+                metadata: { ...item.metadata, ...(pending.pathGroupId ? { pathGroupId: pending.pathGroupId } : {}) },
+              };
+            }
+            return item;
+          });
+        });
+      }
+      if (pending?.pathId) {
+        const pathId = pending.pathId;
+        const conversationId = pending.conversationId || routeConversationIdRef.current;
+        void (async () => {
+          const currentUser = auth?.currentUser;
+          if (!currentUser || !conversationId) return;
+          const token = await currentUser.getIdToken();
+          const response = await fetch(
+            `${API}/api/v1/organizations/${selectedOrganizationId}/conversations/${conversationId}/messages?limit=100&offset=0&path_id=${encodeURIComponent(pathId)}`,
+            { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" },
+          );
+          if (!response.ok) return;
+          const data = await response.json().catch(() => ({}));
+          const items = (data.items || []) as StoredConversationMessage[];
+          sdkSetMessagesRef.current?.(items.map((item) => toSaviraUIMessage(mapStoredMessage(item))));
+          setHistoryOffset(items.length);
+          setHasOlderMessages(Boolean(data.has_more));
+        })().catch((err) => setError((err as Error).message));
+      }
       if (!pendingRequestRef.current?.consentRequired) pendingRequestRef.current = null;
       refreshConversationListRef.current();
       window.setTimeout(() => refreshConversationListRef.current(), 3000);
@@ -310,6 +391,11 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
   refreshConversationListRef.current = refreshConversationList;
 
   const messages = useMemo(() => sdkMessages.map(fromSaviraUIMessage), [sdkMessages]);
+  const visibleMessages = messages;
+  const pathGroupKey = useMemo(
+    () => [...new Set(messages.filter((item) => item.role === "assistant" && item.pathGroupId).map((item) => item.pathGroupId!))].join("|"),
+    [messages],
+  );
   const sending = chatStatus === "submitted" || chatStatus === "streaming";
 
   const setMessages = useCallback((update: ChatMessage[] | ((current: ChatMessage[]) => ChatMessage[])) => {
@@ -371,6 +457,11 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
   }, [router]);
 
   useEffect(() => {
+    const pathId = new URLSearchParams(window.location.search).get("path");
+    setSelectedPathId(pathId);
+  }, [routeConversationId]);
+
+  useEffect(() => {
     if (!pdfViewer) return;
     return () => URL.revokeObjectURL(pdfViewer.url);
   }, [pdfViewer]);
@@ -422,29 +513,50 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
   }, [selectedOrganizationId, routeConversationId]);
 
   useEffect(() => {
-    const currentUser = auth?.currentUser;
-    let active = true;
+    // Clear only when the conversation or organization changes. A timeline switch
+    // must keep the currently rendered messages visible until its replacement loads.
     setMessages([]);
     setHistoryOffset(0);
     setHasOlderMessages(false);
+    pathMessagesCacheRef.current.clear();
+  }, [routeConversationId, selectedOrganizationId, setMessages]);
+
+  useEffect(() => {
+    const currentUser = auth?.currentUser;
+    let active = true;
     if (!routeConversationId || !selectedOrganizationId || !currentUser) {
       setLoadingConversation(false);
       return () => { active = false; };
     }
 
+    if (skipNextPathReloadRef.current) {
+      skipNextPathReloadRef.current = false;
+      return () => { active = false; };
+    }
+    const cacheKey = `${selectedOrganizationId}:${routeConversationId}:${selectedPathId || "base"}`;
+    const cachedPath = pathMessagesCacheRef.current.get(cacheKey);
+    if (cachedPath) {
+      setMessages(cachedPath.messages);
+      setHistoryOffset(cachedPath.historyOffset);
+      setHasOlderMessages(cachedPath.hasOlderMessages);
+      setLoadingConversation(false);
+      return () => { active = false; };
+    }
     const loadConversation = async () => {
       setLoadingConversation(true);
       try {
         const token = await currentUser.getIdToken();
         const response = await fetch(
-          `${API}/api/v1/organizations/${selectedOrganizationId}/conversations/${routeConversationId}/messages?limit=20&offset=0`,
+          `${API}/api/v1/organizations/${selectedOrganizationId}/conversations/${routeConversationId}/messages?limit=100&offset=0${selectedPathId ? `&path_id=${encodeURIComponent(selectedPathId)}` : ""}`,
           { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" },
         );
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.detail || "Could not load this conversation.");
         if (!active) return;
         const items = (data.items || []) as StoredConversationMessage[];
-        setMessages(items.map(mapStoredMessage));
+        const loadedMessages = items.map(mapStoredMessage);
+        pathMessagesCacheRef.current.set(cacheKey, { messages: loadedMessages, historyOffset: items.length, hasOlderMessages: Boolean(data.has_more) });
+        setMessages(loadedMessages);
         setHistoryOffset(items.length);
         setHasOlderMessages(Boolean(data.has_more));
       } catch (err) {
@@ -455,7 +567,47 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
     };
     void loadConversation();
     return () => { active = false; };
-  }, [routeConversationId, selectedOrganizationId, setMessages]);
+  }, [routeConversationId, selectedOrganizationId, selectedPathId, setMessages]);
+
+  useEffect(() => {
+    const currentUser = auth?.currentUser;
+    if (!routeConversationId || !selectedOrganizationId || !currentUser || !pathGroupKey) {
+      setPathOptionsByGroup({});
+      return;
+    }
+    let active = true;
+    const loadPathOptions = async () => {
+      const groups = pathGroupKey ? pathGroupKey.split("|") : [];
+      if (!groups.length) {
+        setPathOptionsByGroup({});
+        return;
+      }
+      const token = await currentUser.getIdToken();
+      const entries = await Promise.all(groups.map(async (groupId) => {
+        const response = await fetch(`${API}/api/v1/organizations/${selectedOrganizationId}/conversations/${routeConversationId}/paths?branch_point_message_id=${encodeURIComponent(groupId)}`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+        if (!response.ok) return [groupId, []] as const;
+        const data = await response.json().catch(() => ({}));
+        return [groupId, (data.items || []) as Array<{ path_id: string | null; label: string }>] as const;
+      }));
+      if (active) setPathOptionsByGroup(Object.fromEntries(entries));
+    };
+    void loadPathOptions().catch((err) => { if (active) setError((err as Error).message); });
+    return () => { active = false; };
+  }, [pathGroupKey, routeConversationId, selectedOrganizationId]);
+
+  async function switchTimeline(pathId: string | null) {
+    if (!routeConversationId || !selectedOrganizationId || !auth?.currentUser || sending || branchBusy) return;
+    const currentCacheKey = `${selectedOrganizationId}:${routeConversationId}:${selectedPathId || "base"}`;
+    pathMessagesCacheRef.current.set(currentCacheKey, { messages, historyOffset, hasOlderMessages });
+    setBranchBusy(true);
+    try {
+      const suffix = pathId ? `?path=${encodeURIComponent(pathId)}` : "";
+      setSelectedPathId(pathId);
+      router.replace(`/chat/${routeConversationId}${suffix}`);
+    } finally {
+      setBranchBusy(false);
+    }
+  }
 
   const selectedOrganization = profile?.organizations.find(
     (organization) => organization.organization_id === selectedOrganizationId,
@@ -468,6 +620,9 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
     if (sending) return;
     void stopSdkGeneration();
     pendingRequestRef.current = null;
+    setSelectedPathId(null);
+    setEditingMessageId(null);
+    setBranchBusy(false);
     setMessages([]);
     setHistoryOffset(0);
     setHasOlderMessages(false);
@@ -480,13 +635,57 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
     event?: FormEvent<HTMLFormElement>,
     piiAction?: "redact" | "send_as_is",
     retry?: PIIConsentChallenge,
+    branchTarget?: { conversationId: string; query: string; checkpointId?: string; pathGroupId?: string; pathId?: string },
   ) {
     event?.preventDefault();
-    const query = retry?.query || draft.trim();
-    if (!query || sending || !selectedOrganizationId) return;
+    const query = retry?.query || branchTarget?.query || draft.trim();
+    if (!query || sending || (branchBusy && !branchTarget) || !selectedOrganizationId) return;
     if (!auth?.currentUser) {
       router.replace("/login");
       return;
+    }
+
+    let destinationConversationId = branchTarget?.conversationId || routeConversationId || undefined;
+    let requestCheckpointId = branchTarget?.checkpointId;
+    let requestPathGroupId = branchTarget?.pathGroupId;
+    let requestPathId = branchTarget?.pathId || selectedPathId || undefined;
+    if (editingMessageId && routeConversationId && !branchTarget && !retry) {
+      const editedMessage = messages.find((message) => message.id === editingMessageId);
+      if (!editedMessage || editedMessage.role !== "user") {
+        setEditingMessageId(null);
+        return;
+      }
+      setBranchBusy(true);
+      try {
+        const token = await auth.currentUser.getIdToken();
+        const response = await fetch(
+          `${API}/api/v1/organizations/${selectedOrganizationId}/conversations/${routeConversationId}/branches`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "edit_input", target_message_id: editingMessageId, edited_query: query }),
+          },
+        );
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || "Could not create an edited conversation branch.");
+        destinationConversationId = String(data.conversation_id);
+        requestCheckpointId = data.parent_checkpoint_id ? String(data.parent_checkpoint_id) : undefined;
+        requestPathGroupId = data.path_group_id ? String(data.path_group_id) : editingMessageId;
+        requestPathId = String(data.path_id);
+        const targetIndex = messages.findIndex((message) => message.id === editingMessageId);
+        setMessages(messages.slice(0, Math.max(0, targetIndex)));
+        skipNextPathReloadRef.current = true;
+        setSelectedPathId(requestPathId);
+        router.replace(`/chat/${routeConversationId}?path=${encodeURIComponent(requestPathId)}`);
+        // The edit continues in this conversation; it does not create a sidebar chat.
+        setEditingMessageId(null);
+      } catch (err) {
+        setError((err as Error).message);
+        setBranchBusy(false);
+        return;
+      } finally {
+        setBranchBusy(false);
+      }
     }
 
     const requestId = retry?.requestId || crypto.randomUUID();
@@ -496,6 +695,10 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
       requestId,
       userMessageId,
       assistantMessageId,
+      conversationId: destinationConversationId,
+      checkpointId: requestCheckpointId,
+      pathGroupId: requestPathGroupId,
+      pathId: requestPathId,
       query,
       piiAction,
       consentRequired: false,
@@ -507,7 +710,7 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
     }
     setDraft("");
     setError("");
-    setStreamingStage("Connecting to SaviraCortex…");
+    setStreamingStage("Connecting to SaviraCortex...");
 
     try {
       await sendSdkMessage({ text: query });
@@ -520,6 +723,55 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
         .map((message) => message.id === activeUserMessageId ? { ...message, error: messageError } : message));
       pendingRequestRef.current = null;
       setStreamingStage("");
+    }
+  }
+
+  async function createTimeTravelBranch(
+    action: "regenerate" | "fork",
+    targetMessageId: string,
+  ) {
+    if (!routeConversationId || !selectedOrganizationId || !auth?.currentUser || sending || branchBusy) return;
+    setBranchBusy(true);
+    setError("");
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const response = await fetch(
+        `${API}/api/v1/organizations/${selectedOrganizationId}/conversations/${routeConversationId}/branches`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ action, target_message_id: targetMessageId }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not create the conversation branch.");
+      const destinationId = String(data.conversation_id);
+      if (action === "fork") {
+        router.push("/chat/" + destinationId);
+        await refreshConversationList();
+      } else {
+        const targetIndex = messages.findIndex((item) => item.id === targetMessageId);
+        const userIndex = action === "regenerate"
+          ? messages.findIndex((item, index) => index < targetIndex && item.role === "user" && messages.slice(index + 1, targetIndex).every((next) => next.role !== "user"))
+          : targetIndex;
+        const pathGroupId = String(data.path_group_id || data.parent_message_id);
+        const pathId = String(data.path_id);
+        setMessages(messages.slice(0, Math.max(0, userIndex)));
+        skipNextPathReloadRef.current = true;
+        setSelectedPathId(pathId);
+        router.replace(`/chat/${destinationId}?path=${encodeURIComponent(pathId)}`);
+        setBranchBusy(false);
+        void sendMessage(undefined, undefined, undefined, {
+          conversationId: destinationId, pathId,
+          checkpointId: data.parent_checkpoint_id ? String(data.parent_checkpoint_id) : undefined,
+          pathGroupId, query: String(data.query || ""),
+        });
+        return;
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBranchBusy(false);
     }
   }
 
@@ -607,7 +859,7 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
     try {
       const token = await currentUser.getIdToken();
       const response = await fetch(
-        `${API}/api/v1/organizations/${selectedOrganizationId}/conversations/${routeConversationId}/messages?limit=20&offset=${historyOffset}`,
+        `${API}/api/v1/organizations/${selectedOrganizationId}/conversations/${routeConversationId}/messages?limit=20&offset=${historyOffset}${selectedPathId ? `&path_id=${encodeURIComponent(selectedPathId)}` : ""}`,
         { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" },
       );
       const data = await response.json().catch(() => ({}));
@@ -678,6 +930,16 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
     pdfRequestId.current += 1;
     setPdfViewer(null);
     setPdfLoading(false);
+  }
+
+  async function copyMessage(message: ChatMessage) {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopiedMessageId(message.id);
+      window.setTimeout(() => setCopiedMessageId((current) => current === message.id ? null : current), 1600);
+    } catch {
+      setMessages((current) => current.map((item) => item.id === message.id ? { ...item, feedbackError: "Clipboard access was unavailable." } : item));
+    }
   }
 
   async function submitFeedback(
@@ -772,7 +1034,8 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
         </div>
         <nav aria-label="Conversation history" className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
           {filteredConversations.map((conversation) => (
-            <button key={conversation.conversation_id} type="button" onClick={() => { router.push("/chat/" + conversation.conversation_id); setMobileSidebarOpen(false); }} title={conversation.title} className={"flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs transition " + (routeConversationId === conversation.conversation_id ? "bg-neutral-200/80 text-neutral-900" : "text-neutral-700 hover:bg-neutral-200/60")}>
+            <button key={conversation.conversation_id} type="button" onClick={() => { setSelectedPathId(null); router.push("/chat/" + conversation.conversation_id); setMobileSidebarOpen(false); }} title={conversation.title} className={"flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs transition " + (routeConversationId === conversation.conversation_id ? "bg-neutral-200/80 text-neutral-900" : "text-neutral-700 hover:bg-neutral-200/60")}>
+              {conversation.branch_action && <span aria-label="Branch" title="Conversation branch" className="rounded bg-neutral-100 px-1.5 py-0.5 text-[9px] text-neutral-500">Branch</span>}
               <span className="min-w-0 flex-1 truncate">{conversation.title || "New conversation"}</span>
             </button>
           ))}
@@ -853,7 +1116,7 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
                 </div>
               )}
 
-              {messages.map((message) => (
+              {visibleMessages.map((message) => (
                 <article key={message.id} className={message.role === "user" ? "ml-auto max-w-3xl" : "mr-auto max-w-4xl"}>
                   <div className="mb-2 flex items-center gap-2 text-xs font-medium text-neutral-600">
                     {message.role === "assistant" ? (
@@ -954,39 +1217,41 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
                       Sensitive information was redacted before this message was processed.
                     </div>
                   )}
-                  {message.role === "assistant" && message.generationId && (
-                    <div className="mt-3 flex flex-wrap items-center gap-2 px-1 text-xs">
-                      <span className="mr-1 text-neutral-500">Was this answer helpful?</span>
-                      <button
-                        type="button"
-                        onClick={() => void submitFeedback(message.id, message.generationId!, "relevant")}
-                        disabled={message.feedbackSaving}
-                        aria-label="Mark answer as relevant"
-                        aria-pressed={message.feedbackStatus === "relevant"}
-                        className={"rounded-lg border px-3 py-1.5 transition disabled:opacity-50 " + (
-                          message.feedbackStatus === "relevant"
-                            ? "border-neutral-500 bg-neutral-100 text-neutral-900"
-                            : "border-neutral-200 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
-                        )}
-                      >
-                        Helpful
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void submitFeedback(message.id, message.generationId!, "not_relevant")}
-                        disabled={message.feedbackSaving}
-                        aria-label="Mark answer as not relevant"
-                        aria-pressed={message.feedbackStatus === "not_relevant"}
-                        className={"rounded-lg border px-3 py-1.5 transition disabled:opacity-50 " + (
-                          message.feedbackStatus === "not_relevant"
-                            ? "border-neutral-500 bg-neutral-100 text-neutral-900"
-                            : "border-neutral-200 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
-                        )}
-                      >
-                        Not helpful
-                      </button>
-                      {message.feedbackSaving && <span className="text-neutral-500">Saving...</span>}
-                      {message.feedbackError && <span role="alert" className="text-red-600">{message.feedbackError}</span>}
+                  {message.role === "user" && (
+                    <div className="mt-2 flex items-center justify-end gap-1 px-1 text-neutral-500">
+                      {routeConversationId && !sending && <button type="button" onClick={() => { setEditingMessageId(message.id); setDraft(message.content); }} title="Edit and branch" aria-label="Edit and branch" className="rounded-lg p-2 transition hover:bg-neutral-100 hover:text-neutral-900"><MessageActionIcon name="edit" /></button>}
+                      <button type="button" onClick={() => void copyMessage(message)} title="Copy message" aria-label="Copy message" className="rounded-lg p-2 transition hover:bg-neutral-100 hover:text-neutral-900"><MessageActionIcon name="copy" /></button>
+                      {copiedMessageId === message.id && <span className="pr-1 text-[11px]">Copied</span>}
+                    </div>
+                  )}
+                  {message.role === "assistant" && (
+                    <div className="mt-3 flex items-center gap-1 px-1 text-neutral-500">
+                      <button type="button" onClick={() => void copyMessage(message)} title="Copy response" aria-label="Copy response" className="rounded-lg p-2 transition hover:bg-neutral-100 hover:text-neutral-900"><MessageActionIcon name="copy" /></button>
+                      {message.generationId && <div className="ml-1 inline-flex items-center rounded-lg border border-neutral-200 bg-white p-0.5">
+                        <button type="button" onClick={() => void submitFeedback(message.id, message.generationId!, "relevant")} disabled={message.feedbackSaving} title="Helpful" aria-label="Helpful" aria-pressed={message.feedbackStatus === "relevant"} className={"rounded-md p-1.5 transition hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-40 " + (message.feedbackStatus === "relevant" ? "bg-neutral-100 text-neutral-900" : "")}><MessageActionIcon name="thumb-up" /></button>
+                        <button type="button" onClick={() => void submitFeedback(message.id, message.generationId!, "not_relevant")} disabled={message.feedbackSaving} title="Not helpful" aria-label="Not helpful" aria-pressed={message.feedbackStatus === "not_relevant"} className={"rounded-md p-1.5 transition hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-40 " + (message.feedbackStatus === "not_relevant" ? "bg-neutral-100 text-neutral-900" : "")}><MessageActionIcon name="thumb-down" /></button>
+                      </div>}
+                      {message.pathGroupId && (pathOptionsByGroup[message.pathGroupId]?.length || 0) > 1 && (() => {
+                        // Guard against duplicate IDs in stale API responses: duplicates
+                        // make the counter jump and can incorrectly disable Next.
+                        const versions = (pathOptionsByGroup[message.pathGroupId!] || [])
+                          .filter((version, index, all) =>
+                            all.findIndex((candidate) => candidate.path_id === version.path_id) === index
+                          );
+                        const matchedIndex = versions.findIndex((version) => version.path_id === selectedPathId);
+                        const activeIndex = matchedIndex >= 0 ? matchedIndex : 0;
+                        return <div className="ml-1 inline-flex items-center gap-1 rounded-full border border-neutral-200 bg-white px-1 py-0.5 text-[11px] text-neutral-600" aria-label="Conversation timeline versions">
+                          <button type="button" disabled={branchBusy || loadingConversation || activeIndex <= 0} onClick={() => void switchTimeline(versions[activeIndex - 1]?.path_id ?? null)} title="Previous timeline" aria-label="Previous timeline" className="grid h-6 w-6 place-items-center rounded-full hover:bg-neutral-100 disabled:opacity-30">‹</button>
+                          <span className="min-w-[2.5rem] text-center tabular-nums">{Math.max(1, activeIndex + 1)} / {versions.length}</span>
+                          <button type="button" disabled={branchBusy || loadingConversation || activeIndex < 0 || activeIndex >= versions.length - 1} onClick={() => void switchTimeline(versions[activeIndex + 1]?.path_id ?? null)} title="Next timeline" aria-label="Next timeline" className="grid h-6 w-6 place-items-center rounded-full hover:bg-neutral-100 disabled:opacity-30">›</button>
+                        </div>;
+                      })()}
+                      {routeConversationId && <button type="button" disabled={sending || branchBusy || !message.checkpointId} onClick={() => void createTimeTravelBranch("regenerate", message.id)} title={message.checkpointId ? "Regenerate answer" : "Checkpoint unavailable for this older message"} aria-label="Regenerate answer" className="ml-1 inline-flex h-9 w-9 items-center justify-center rounded-full border border-neutral-300 bg-white text-neutral-700 shadow-sm transition hover:border-neutral-500 hover:bg-neutral-100 hover:text-neutral-950 disabled:cursor-not-allowed disabled:opacity-50"><MessageActionIcon name="refresh" className="h-[18px] w-[18px]" /></button>}
+                      {routeConversationId && <button type="button" disabled={sending || branchBusy || !message.checkpointId} onClick={() => void createTimeTravelBranch("fork", message.id)} title={message.checkpointId ? "Fork from here" : "Checkpoint unavailable for this older message"} aria-label="Fork from here" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-300 bg-white text-neutral-700 shadow-sm transition hover:border-neutral-500 hover:bg-neutral-100 hover:text-neutral-950 disabled:cursor-not-allowed disabled:opacity-50"><MessageActionIcon name="fork" className="h-[18px] w-[18px]" /></button>}
+                      {copiedMessageId === message.id && <span className="pl-1 text-[11px]">Copied</span>}
+                      {message.feedbackSaving && <span className="pl-1 text-[11px]">Saving...</span>}
+                      {message.feedbackStatus && !message.feedbackSaving && <span className="pl-1 text-[11px]">{message.feedbackStatus === "relevant" ? "Thanks for the feedback" : "Feedback received"}</span>}
+                      {message.feedbackError && <span role="alert" className="pl-1 text-[11px] text-red-600">{message.feedbackError}</span>}
                     </div>
                   )}
                 </article>
@@ -1006,6 +1271,13 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
             </div>
 
             <div className="sticky bottom-0 -mx-4 bg-white px-4 pb-5 pt-3 sm:-mx-6 sm:px-6">
+              {editingMessageId && (
+                <div className="mx-auto mb-2 flex max-w-3xl items-center justify-between rounded-lg bg-neutral-100 px-3 py-2 text-xs text-neutral-700">
+                  <span>Editing an earlier message. The conversation will continue from that point.</span>
+                  <button type="button" onClick={() => { setEditingMessageId(null); setDraft(""); }} className="font-medium text-neutral-600 hover:text-neutral-950">Cancel</button>
+                </div>
+              )}
+              {branchBusy && <p className="mx-auto mb-2 max-w-3xl text-xs text-neutral-500" role="status">Creating a new conversation path...</p>}
               <form onSubmit={sendMessage} className="mx-auto max-w-3xl">
                 <div className="rounded-3xl border border-neutral-300 bg-white p-2 shadow-[0_2px_10px_rgba(0,0,0,0.06)] transition focus-within:border-neutral-400">
                   <label htmlFor="chat-prompt" className="sr-only">Ask your organization’s knowledge base</label>
@@ -1029,7 +1301,7 @@ export default function ChatWorkspacePage({ conversationId: routeConversationId 
                     <p className="text-[10px] text-neutral-500">Enter to send | Shift + Enter for a new line</p>
                     <button
                       type="submit"
-                      disabled={sending || !draft.trim()}
+                      disabled={sending || branchBusy || !draft.trim()}
                       className="inline-flex items-center gap-2 rounded-full bg-neutral-900 px-4 py-2.5 text-xs font-medium text-white transition hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {sending ? "Working…" : "Send"}
